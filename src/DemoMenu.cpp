@@ -714,10 +714,16 @@ namespace Demo
         const float titleH = th.ControlHeight * S;
         const float sidebarW = 190.0f * S;
 
+        // Keep the initial layout while allowing ImGui to retain user-driven resizing.
+        // `Always` here overwrote the result of every border drag on the next frame.
         const ImVec2 menuSize = ImVec2(940.0f * S, 580.0f * S);
-        ImGui::SetNextWindowSize(menuSize, ImGuiCond_Always);
+        ImGui::SetNextWindowSize(menuSize, ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + (vp->Size.x - menuSize.x) * 0.5f,
                                        vp->Pos.y + (vp->Size.y - menuSize.y) * 0.5f), ImGuiCond_Once);
+
+        // The menu has no native title bar, so all four edges need to claim resize
+        // input before the window's generic drag-to-move handling sees it.
+        ImGui::GetIO().ConfigWindowsResizeFromEdges = true;
 
         ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar |
                                  ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse |
@@ -782,15 +788,28 @@ namespace Demo
                 ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f * S, 12.0f * S));
                 if (!g_editTarget.empty())
                     RenderAddBanner();
-                const float tp = IVUI::Transition("tab_transition", g_tab, 6.5f, IVUI::EASE_OUT_CUBIC);
-                const float slide = (1.0f - tp) * 26.0f * S;
+                // Fade the old page out before drawing the newly selected one. This
+                // avoids direction-dependent motion when tabs are changed repeatedly.
+                static int shownTab = -1;
+                static float tabFade = 1.0f;
+                if (shownTab < 0)
+                    shownTab = g_tab;
+                if (shownTab != g_tab)
+                {
+                    tabFade = ImMax(0.0f, tabFade - IVUI::DeltaTime() * 8.0f);
+                    if (tabFade <= 0.001f)
+                        shownTab = g_tab;
+                }
+                else
+                {
+                    tabFade = ImMin(1.0f, tabFade + IVUI::DeltaTime() * 8.0f);
+                }
+                const float tp = IVUI::EaseValue(0.0f, 1.0f, tabFade, IVUI::EASE_IN_OUT_SINE);
                 IVUI::PushTheme(IVUI::ScaleThemeAlpha(IVUI::GetTheme(), tp));
-                ImGui::Indent(slide);
-                if (g_tab < (int)g_categories.size())
-                    RenderCategoryContent(g_categories[g_tab]);
+                if (shownTab < (int)g_categories.size())
+                    RenderCategoryContent(g_categories[shownTab]);
                 else
                     RenderConfigTab();
-                ImGui::Unindent(slide);
                 IVUI::PopTheme();
                 ImGui::PopStyleVar();
                 IVUI::OverlayScrollbar();
