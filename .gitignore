@@ -1,0 +1,23 @@
+# Visual Studio per-user and workspace state
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Native build output and MSBuild tracking files
+out/
+*.obj
+*.pdb
+*.ipdb
+*.iobj
+*.ilk
+*.tlog
+*.idb
+*.exe
+*.dll
+*.lib
+*.exp
+
+# Generated runtime configuration
+imgui.ini

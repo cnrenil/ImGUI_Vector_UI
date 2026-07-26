@@ -1,0 +1,2 @@
+GNU Unifont 16.0.04 (unifont.otf), from https://unifoundry.com/pub/unifont/
+Licensed under the SIL Open Font License v1.1 and GNU GPLv2+ with font-embedding exception.

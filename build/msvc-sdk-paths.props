@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  This Visual Studio 2022 install is relocated to A: and the Windows 10 SDK on
+  this machine is NOT registered (the HKLM\...\Windows Kits\Installed Roots keys
+  are missing). MSBuild therefore cannot auto-discover the SDK include/lib dirs.
+  This prop sheet supplies them explicitly; build.bat force-imports it and also
+  bypasses the SDK-presence check. Adjust _VC / _SDK / _VER for another machine.
+-->
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <_VC>A:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Tools\MSVC\14.44.35207</_VC>
+    <_SDK>A:\Program Files (x86)\Windows Kits\10</_SDK>
+    <_VER>10.0.26100.0</_VER>
+  </PropertyGroup>
+  <PropertyGroup>
+    <IncludePath>$(_VC)\include;$(_SDK)\Include\$(_VER)\ucrt;$(_SDK)\Include\$(_VER)\shared;$(_SDK)\Include\$(_VER)\um;$(_SDK)\Include\$(_VER)\winrt;$(_SDK)\Include\$(_VER)\cppwinrt;$(IncludePath)</IncludePath>
+    <LibraryPath>$(_VC)\lib\x64;$(_SDK)\Lib\$(_VER)\ucrt\x64;$(_SDK)\Lib\$(_VER)\um\x64;$(LibraryPath)</LibraryPath>
+    <ExecutablePath>$(_VC)\bin\Hostx64\x64;$(_SDK)\bin\$(_VER)\x64;$(ExecutablePath)</ExecutablePath>
+  </PropertyGroup>
+</Project>

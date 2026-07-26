@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="app">
+      <UniqueIdentifier>{7EC9B0A8-51C6-49BD-B3F2-FB9D4A73D8E1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src">
+      <UniqueIdentifier>{178209E2-0F4F-47D8-B182-CF7E70A5B4DE}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="docs">
+      <UniqueIdentifier>{E6BB3646-6F51-4E46-A6ED-D79DF0E26B8E}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\DemoMenu.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\BL4_Hack\Borderlands4\ThirdParty\ImGui\imgui.h" />
+    <ClInclude Include="..\BL4_Hack\Borderlands4\ThirdParty\ImGui\imgui_internal.h" />
+    <ClInclude Include="..\BL4_Hack\Borderlands4\ThirdParty\ImGui\backends\imgui_impl_dx12.h" />
+    <ClInclude Include="..\BL4_Hack\Borderlands4\ThirdParty\ImGui\backends\imgui_impl_win32.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="app\Dx12Host\main.cpp">
+      <Filter>app</Filter>
+    </ClCompile>
+    <ClCompile Include="src\DemoMenu.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\BL4_Hack\Borderlands4\ThirdParty\ImGui\imgui.cpp" />
+    <ClCompile Include="..\BL4_Hack\Borderlands4\ThirdParty\ImGui\imgui_draw.cpp" />
+    <ClCompile Include="..\BL4_Hack\Borderlands4\ThirdParty\ImGui\imgui_tables.cpp" />
+    <ClCompile Include="..\BL4_Hack\Borderlands4\ThirdParty\ImGui\imgui_widgets.cpp" />
+    <ClCompile Include="..\BL4_Hack\Borderlands4\ThirdParty\ImGui\backends\imgui_impl_dx12.cpp" />
+    <ClCompile Include="..\BL4_Hack\Borderlands4\ThirdParty\ImGui\backends\imgui_impl_win32.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="BL4_UI_COMPONENT_EXTRACTION_PLAN.md">
+      <Filter>docs</Filter>
+    </None>
+  </ItemGroup>
+</Project>
