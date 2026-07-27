@@ -141,7 +141,7 @@
         D3D12_DESCRIPTOR_RANGE range{}; range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV; range.NumDescriptors = 1;
         D3D12_ROOT_PARAMETER params[2]{}; params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE; params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
         params[0].DescriptorTable.NumDescriptorRanges = 1; params[0].DescriptorTable.pDescriptorRanges = &range;
-        params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS; params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL; params[1].Constants.ShaderRegister = 0; params[1].Constants.Num32BitValues = 32;
+        params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS; params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL; params[1].Constants.ShaderRegister = 0; params[1].Constants.Num32BitValues = 44;
         D3D12_STATIC_SAMPLER_DESC sampler{}; sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR; sampler.AddressU = sampler.AddressV = sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP; sampler.ShaderRegister = 0; sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL; sampler.MaxLOD = D3D12_FLOAT32_MAX;
         D3D12_ROOT_SIGNATURE_DESC root{}; root.NumParameters = 2; root.pParameters = params; root.NumStaticSamplers = 1; root.pStaticSamplers = &sampler;
         ID3DBlob* blob = nullptr;
@@ -200,7 +200,7 @@
         Transition(cmd, target, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET); cmd->OMSetRenderTargets(1, &rtv, FALSE, nullptr); SetFullscreenState(cmd, g_glassEffects.outputWidth, g_glassEffects.outputHeight);
         cmd->SetPipelineState(pipeline); cmd->SetGraphicsRootDescriptorTable(0, source);
         const IVUI::GlassShaderConstants constants = IVUI::MakeGaussianBlurConstants(ImVec2((float)g_glassEffects.outputWidth, (float)g_glassEffects.outputHeight), ImVec2(dx, dy), sigma);
-        cmd->SetGraphicsRoot32BitConstants(1, 32, constants.values, 0); cmd->DrawInstanced(3, 1, 0, 0); Transition(cmd, target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        cmd->SetGraphicsRoot32BitConstants(1, 44, constants.values, 0); cmd->DrawInstanced(3, 1, 0, 0); Transition(cmd, target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
     }
     static void RenderBloomFilterPass(ID3D12GraphicsCommandList* cmd, float brightnessThreshold, float saturationThreshold)
     {
@@ -210,7 +210,7 @@
         cmd->SetPipelineState(g_glassEffects.filterPipeline);
         cmd->SetGraphicsRootDescriptorTable(0, g_glassEffects.uiSrv);
         const IVUI::GlassShaderConstants constants = IVUI::MakeBloomFilterConstants(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), ImVec4(0.0f, 0.0f, 0.0f, 0.0f), brightnessThreshold, saturationThreshold);
-        cmd->SetGraphicsRoot32BitConstants(1, 32, constants.values, 0);
+        cmd->SetGraphicsRoot32BitConstants(1, 44, constants.values, 0);
         cmd->DrawInstanced(3, 1, 0, 0);
         Transition(cmd, g_glassEffects.filterTexture, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
     }
@@ -226,7 +226,7 @@
         cmd->SetGraphicsRootSignature(g_glassEffects.rootSignature);
         cmd->SetPipelineState(g_glassEffects.backgroundPipeline);
         const IVUI::GlassShaderConstants constants = IVUI::MakeBackgroundConstants(size, timeSeconds);
-        cmd->SetGraphicsRoot32BitConstants(1, 32, constants.values, 0);
+        cmd->SetGraphicsRoot32BitConstants(1, 44, constants.values, 0);
         cmd->DrawInstanced(3, 1, 0, 0);
         Transition(cmd, g_glassEffects.backgroundTexture, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
     }
@@ -253,7 +253,7 @@
         cmd->SetPipelineState(g_glassEffects.glowPipeline);
         cmd->SetGraphicsRootDescriptorTable(0, g_glassEffects.verticalBlurSrv);
         const IVUI::GlassShaderConstants constants = IVUI::MakeGlowCompositeConstants(bloomStrength);
-        cmd->SetGraphicsRoot32BitConstants(1, 32, constants.values, 0);
+        cmd->SetGraphicsRoot32BitConstants(1, 44, constants.values, 0);
         cmd->DrawInstanced(3, 1, 0, 0);
     }
     static void CompositeUiTexture(ID3D12GraphicsCommandList* cmd, D3D12_CPU_DESCRIPTOR_HANDLE rtv)
@@ -266,40 +266,78 @@
         cmd->SetPipelineState(g_glassEffects.uiCompositePipeline);
         cmd->SetGraphicsRootDescriptorTable(0, g_glassEffects.uiSrv);
         const IVUI::GlassShaderConstants constants{};
-        cmd->SetGraphicsRoot32BitConstants(1, 32, constants.values, 0);
+        cmd->SetGraphicsRoot32BitConstants(1, 44, constants.values, 0);
         cmd->DrawInstanced(3, 1, 0, 0);
     }
-    static void RenderGlassEffects(
-        ID3D12GraphicsCommandList* cmd,
-        ID3D12Resource* backdrop,
-        ID3D12Resource* target,
-        D3D12_CPU_DESCRIPTOR_HANDLE rtv,
-        ImVec2 size,
-        const IVUI::GlassRect* rects,
-        int count,
-        float backdropBlurSigma)
+    struct BackdropProcessRequest
     {
-        if (!cmd || !backdrop || !target || !rects || count <= 0 || !EnsureGlassTextures((UINT)size.x, (UINT)size.y)) return;
-        ID3D12DescriptorHeap* heaps[] = { g_glassEffects.srvHeap }; cmd->SetDescriptorHeaps(1, heaps); cmd->SetGraphicsRootSignature(g_glassEffects.rootSignature);
-        Transition(cmd, backdrop, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        ID3D12GraphicsCommandList* commandList = nullptr;
+        ID3D12Resource* backdrop = nullptr;
+        ImVec2 size{};
+        float blurSigma = 0.0f;
+    };
+
+    struct BackdropProcessOutput
+    {
+        ID3D12Resource* texture = nullptr;
+        D3D12_GPU_DESCRIPTOR_HANDLE srv{};
+    };
+
+    // Captures the host backdrop and returns the texture produced by the optional Gaussian stage.
+    static BackdropProcessOutput DispatchBackdropProcess(const BackdropProcessRequest& request)
+    {
+        if (!request.commandList || !request.backdrop || !EnsureGlassTextures((UINT)request.size.x, (UINT)request.size.y))
+            return {};
+
+        ID3D12GraphicsCommandList* cmd = request.commandList;
+        Transition(cmd, request.backdrop, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_SOURCE);
         Transition(cmd, g_glassEffects.sourceTexture, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
-        cmd->CopyResource(g_glassEffects.sourceTexture, backdrop);
+        cmd->CopyResource(g_glassEffects.sourceTexture, request.backdrop);
         Transition(cmd, g_glassEffects.sourceTexture, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        Transition(cmd, backdrop, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        D3D12_GPU_DESCRIPTOR_HANDLE backdropSrv = g_glassEffects.sourceSrv;
-        if (backdropBlurSigma > 0.01f)
-        {
-            RenderGaussianPass(cmd, g_glassEffects.backdropGaussianPipeline, g_glassEffects.sourceSrv, g_glassEffects.horizontalBlurTexture, g_glassEffects.horizontalBlurRtv, 1, 0, backdropBlurSigma);
-            RenderGaussianPass(cmd, g_glassEffects.backdropGaussianPipeline, g_glassEffects.horizontalBlurSrv, g_glassEffects.verticalBlurTexture, g_glassEffects.verticalBlurRtv, 0, 1, backdropBlurSigma);
-            backdropSrv = g_glassEffects.verticalBlurSrv;
-        }
-        cmd->OMSetRenderTargets(1, &rtv, FALSE, nullptr); SetFullscreenState(cmd, g_glassEffects.outputWidth, g_glassEffects.outputHeight); cmd->SetPipelineState(g_glassEffects.compositePipeline); cmd->SetGraphicsRootDescriptorTable(0, backdropSrv);
-        for (int i = 0; i < count; ++i)
-        {
-            const IVUI::GlassShaderConstants constants = IVUI::MakeGlassCompositeConstants(rects[i], size);
-            cmd->SetGraphicsRoot32BitConstants(1, 32, constants.values, 0);
-            cmd->DrawInstanced(3, 1, 0, 0);
-        }
+        Transition(cmd, request.backdrop, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+
+        if (request.blurSigma <= 0.01f)
+            return { g_glassEffects.sourceTexture, g_glassEffects.sourceSrv };
+
+        RenderGaussianPass(cmd, g_glassEffects.backdropGaussianPipeline, g_glassEffects.sourceSrv,
+                           g_glassEffects.horizontalBlurTexture, g_glassEffects.horizontalBlurRtv, 1, 0, request.blurSigma);
+        RenderGaussianPass(cmd, g_glassEffects.backdropGaussianPipeline, g_glassEffects.horizontalBlurSrv,
+                           g_glassEffects.verticalBlurTexture, g_glassEffects.verticalBlurRtv, 0, 1, request.blurSigma);
+        return { g_glassEffects.verticalBlurTexture, g_glassEffects.verticalBlurSrv };
+    }
+
+    // Renders the refracted material to an intermediate image, then composites that image into the UI target.
+    static void DispatchGlassMaterial(
+        ID3D12GraphicsCommandList* cmd,
+        const BackdropProcessOutput& backdrop,
+        ID3D12Resource* target,
+        D3D12_CPU_DESCRIPTOR_HANDLE targetRtv,
+        ImVec2 size,
+        const IVUI::GlassRect& rect,
+        float timeSeconds)
+    {
+        if (!cmd || !backdrop.texture || !target || !EnsureGlassTextures((UINT)size.x, (UINT)size.y))
+            return;
+
+        const float transparent[4] = { 0, 0, 0, 0 };
+        Transition(cmd, g_glassEffects.filterTexture, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        cmd->ClearRenderTargetView(g_glassEffects.filterRtv, transparent, 0, nullptr);
+        cmd->OMSetRenderTargets(1, &g_glassEffects.filterRtv, FALSE, nullptr);
+        SetFullscreenState(cmd, g_glassEffects.outputWidth, g_glassEffects.outputHeight);
+        cmd->SetPipelineState(g_glassEffects.compositePipeline);
+        cmd->SetGraphicsRootDescriptorTable(0, backdrop.srv);
+        const IVUI::GlassShaderConstants materialConstants = IVUI::MakeGlassCompositeConstants(rect, size, timeSeconds);
+        cmd->SetGraphicsRoot32BitConstants(1, 44, materialConstants.values, 0);
+        cmd->DrawInstanced(3, 1, 0, 0);
+        Transition(cmd, g_glassEffects.filterTexture, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+
+        cmd->OMSetRenderTargets(1, &targetRtv, FALSE, nullptr);
+        SetFullscreenState(cmd, g_glassEffects.outputWidth, g_glassEffects.outputHeight);
+        cmd->SetPipelineState(g_glassEffects.uiCompositePipeline);
+        cmd->SetGraphicsRootDescriptorTable(0, g_glassEffects.filterSrv);
+        const IVUI::GlassShaderConstants compositeConstants{};
+        cmd->SetGraphicsRoot32BitConstants(1, 44, compositeConstants.values, 0);
+        cmd->DrawInstanced(3, 1, 0, 0);
     }
 
     struct GlassRenderContext
@@ -309,6 +347,7 @@
         ID3D12Resource* target = nullptr;
         D3D12_CPU_DESCRIPTOR_HANDLE rtv{};
         ImVec2 size{};
+        float timeSeconds = 0.0f;
     };
     static GlassRenderContext g_glassRenderContext;
 
@@ -318,10 +357,13 @@
         if (context.commandList == nullptr || context.backdrop == nullptr || context.target == nullptr)
             return;
 
-        // The host backdrop is sampled behind the transparent UI capture target.
+        // The dispatcher returns an explicit backdrop image before the material pass consumes it.
         const float backdropBlurSigma = std::clamp(IVUI::GetTheme().BackdropBlurSigma, 0.0f, 16.0f);
-        RenderGlassEffects(context.commandList, context.backdrop, context.target, context.rtv, context.size,
-                           &rect, 1, backdropBlurSigma);
+        ID3D12DescriptorHeap* heaps[] = { g_glassEffects.srvHeap };
+        context.commandList->SetDescriptorHeaps(1, heaps);
+        context.commandList->SetGraphicsRootSignature(g_glassEffects.rootSignature);
+        const BackdropProcessOutput backdrop = DispatchBackdropProcess({ context.commandList, context.backdrop, context.size, backdropBlurSigma });
+        DispatchGlassMaterial(context.commandList, backdrop, context.target, context.rtv, context.size, rect, context.timeSeconds);
     }
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(
     HWND hWnd,
@@ -619,7 +661,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
             const float transparent[4] = { 0, 0, 0, 0 };
             g_pd3dCommandList->ClearRenderTargetView(g_glassEffects.uiRtv, transparent, 0, nullptr);
             g_glassRenderContext = { g_pd3dCommandList, g_glassEffects.backgroundTexture,
-                                     g_glassEffects.uiTexture, g_glassEffects.uiRtv, renderTargetSize };
+                                     g_glassEffects.uiTexture, g_glassEffects.uiRtv, renderTargetSize, (float)ImGui::GetTime() };
             g_pd3dCommandList->OMSetRenderTargets(1, &g_glassEffects.uiRtv, FALSE, nullptr);
             g_pd3dCommandList->SetDescriptorHeaps(1, &g_pd3dSrvDescHeap);
             ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), g_pd3dCommandList);

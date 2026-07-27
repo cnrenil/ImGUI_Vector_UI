@@ -76,6 +76,13 @@ namespace IVUI
         float GlassEdgeWidth;    ///<  px width of the refractive material rim (unscaled)
         float GlassEdgeHighlight;///<  0..1 strength of the directional specular rim
         float GlassThickness;    ///<  0..1 optical depth; increases tint, refraction and shadow
+        float GlassShapePower;   ///<  rounded-edge lens response exponent (higher = a tighter refractive rim)
+        float GlassLensStrength; ///<  exponential lens curve amplitude
+        float GlassLensBase;     ///<  base of the lens exponential curve
+        float GlassLensFalloff;  ///<  distance decay of the lens exponential curve
+        float GlassLensBias;     ///<  rim bias of the lens exponential curve
+        float GlassLensPower;    ///<  final power applied to the lens scale
+        float GlassNoise;        ///<  px of subtle time-varying refraction noise
         float Sheen;             ///<  top specular highlight strength (0..1)
         float PanelGlow;         ///<  final framebuffer bloom strength
         float PanelGlowSpread;   ///<  panel glow px falloff (unscaled)

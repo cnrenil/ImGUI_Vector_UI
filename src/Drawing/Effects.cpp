@@ -18,7 +18,7 @@ namespace IVUI
         return R"(
 Texture2D SourceTex : register(t0);
 SamplerState LinearClamp : register(s0);
-cbuffer Constants : register(b0) { float4 uData[8]; };
+cbuffer Constants : register(b0) { float4 uData[11]; };
 struct VSOut { float4 pos : SV_Position; float2 uv : TEXCOORD0; };
 VSOut VSMain(uint vid : SV_VertexID) {
     VSOut o; float2 p = float2((vid == 2) ? 3.0 : -1.0, (vid == 1) ? 3.0 : -1.0);
@@ -68,13 +68,25 @@ float4 FilterPS(VSOut input) : SV_Target {
 float RoundedBoxSdf(float2 p, float2 center, float2 halfSize, float radius) {
     float2 q = abs(p - center) - halfSize + radius; return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
 }
+float Hash21(float2 p) {
+    p = frac(p * float2(123.34, 345.45));
+    p += dot(p, p + 34.345);
+    return frac(p.x * p.y);
+}
+float2 SafeRefractedUv(float2 originalUv, float2 refractedUv, float2 texel) {
+    float margin = max(texel.x, texel.y) * 6.0;
+    float2 lower = refractedUv - margin;
+    float2 upper = (1.0 - margin) - refractedUv;
+    float inBounds = smoothstep(-margin, margin, min(min(lower.x, lower.y), min(upper.x, upper.y)));
+    return lerp(originalUv, refractedUv, inBounds);
+}
 float4 Over(float4 accumulated, float3 color, float alpha) {
     alpha = saturate(alpha); accumulated.rgb = color * alpha + accumulated.rgb * (1.0 - alpha);
     accumulated.a = alpha + accumulated.a * (1.0 - alpha); return accumulated;
 }
 float4 CompositePS(VSOut input) : SV_Target {
     float2 rectMin = uData[0].xy, rectMax = uData[0].zw, center = (rectMin + rectMax) * 0.5, halfSize = (rectMax - rectMin) * 0.5;
-    float radius = uData[1].z, opacity = uData[1].w; float3 tint = uData[2].rgb, accent = uData[3].rgb; float4 material = uData[6], texelData = uData[7]; float4 fx = uData[5];
+    float radius = uData[1].z, opacity = uData[1].w; float3 tint = uData[2].rgb, accent = uData[3].rgb; float4 material = uData[6], texelData = uData[7], lens = uData[8], lensCurve = uData[9], motion = uData[10]; float4 fx = uData[5];
     float sdf = RoundedBoxSdf(input.pos.xy, center, halfSize, radius), mask = saturate(1.0 - smoothstep(0.0, 1.5, sdf));
     float edgeWidth = max(material.y, 0.5);
     float border = 1.0 - smoothstep(0.5, edgeWidth, abs(sdf));
@@ -84,16 +96,32 @@ float4 CompositePS(VSOut input) : SV_Target {
         RoundedBoxSdf(input.pos.xy + float2(0.0, epsilon), center, halfSize, radius) - RoundedBoxSdf(input.pos.xy - float2(0.0, epsilon), center, halfSize, radius));
     normal = normalize(normal + float2(0.0001, 0.0001));
     float thickness = saturate(material.w);
-    float2 refractedUv = input.uv + normal * texelData.xy * material.x * border * (0.35 + thickness * 0.65);
-    float shadowSdf = RoundedBoxSdf(input.pos.xy, center + float2(0.0, 10.0), halfSize, radius);
-    float shadowAlpha = exp(-max(shadowSdf, 0.0) / max(fx.w, 0.001)) * fx.z * (1.0 + thickness * 0.35) * (1.0 - mask);
+    float lensRadius = max(min(halfSize.x, halfSize.y), 1.0);
+    float edgeDistance = saturate(max(-sdf, 0.0) / lensRadius);
+    float interiorDistance = pow(edgeDistance, 2.0 / max(texelData.z, 2.0));
+    float exponentialBase = max(lens.x * 2.718281828, 0.0001);
+    float lensScale = 1.0 - texelData.w * pow(exponentialBase, -lensCurve.x * interiorDistance - lensCurve.y);
+    lensScale = pow(max(lensScale, 0.02), max(lensCurve.z, 0.1));
+    float lensCompression = saturate(1.0 - lensScale);
+    float2 refractedPosition = input.pos.xy - normal * lensCompression * lensRadius * 0.10;
+    float noise = (Hash21(input.pos.xy * 0.13 + motion.y * 0.25) - 0.5) * motion.x;
+    float2 refractedUv = refractedPosition * texelData.xy + normal * texelData.xy * (material.x * border * (0.35 + thickness * 0.65) + noise);
+    refractedUv = SafeRefractedUv(input.uv, refractedUv, texelData.xy);
+    float shadowSpread = max(fx.w, 0.001);
+    float shadowSdf = RoundedBoxSdf(input.pos.xy, center + float2(0.0, min(12.0, shadowSpread * 0.30)), halfSize, radius);
+    float shadowDistance = max(shadowSdf, 0.0);
+    float shadowRange = shadowSpread * 4.0;
+    float shadowFade = 1.0 - smoothstep(shadowRange * 0.75, shadowRange, shadowDistance);
+    float shadowAlpha = exp(-shadowDistance / shadowSpread) * fx.z * (1.0 + thickness * 0.35) * (1.0 - mask) * shadowFade;
     float tintStrength = saturate(uData[4].w);
     float3 glass = lerp(SourceTex.Sample(LinearClamp, refractedUv).rgb, tint, tintStrength * (0.72 + thickness * 0.28));
     float lightFacing = saturate(dot(normal, normalize(float2(-0.45, -0.90))));
     float rim = border * (0.22 + lightFacing * 0.78) * material.z;
     glass += lerp(accent, float3(1.0, 1.0, 1.0), 0.55) * rim;
-    float4 result = float4(0.0, 0.0, 0.0, 0.0); result = Over(result, float3(0.0, 0.0, 0.0), shadowAlpha);
-    return Over(result, glass, mask * opacity);
+    float materialAlpha = mask * opacity;
+    clip(max(materialAlpha, shadowAlpha) - 0.001);
+    float4 result = Over(float4(0.0, 0.0, 0.0, 0.0), float3(0.0, 0.0, 0.0), shadowAlpha);
+    return Over(result, glass, materialAlpha);
 }
 float4 GlowPS(VSOut input) : SV_Target {
     float3 blurred = SourceTex.Sample(LinearClamp, input.uv).rgb;
@@ -154,7 +182,7 @@ float4 UiCompositePS(VSOut input) : SV_Target {
         return constants;
     }
 
-    GlassShaderConstants MakeGlassCompositeConstants(const GlassRect& rect, ImVec2 renderTargetSize)
+    GlassShaderConstants MakeGlassCompositeConstants(const GlassRect& rect, ImVec2 renderTargetSize, float timeSeconds)
     {
         GlassShaderConstants constants{};
         constants.values[0] = rect.min.x;
@@ -180,6 +208,14 @@ float4 UiCompositePS(VSOut input) : SV_Target {
         constants.values[27] = rect.thickness;
         constants.values[28] = renderTargetSize.x > 0.0f ? 1.0f / renderTargetSize.x : 0.0f;
         constants.values[29] = renderTargetSize.y > 0.0f ? 1.0f / renderTargetSize.y : 0.0f;
+        constants.values[30] = rect.shapePower;
+        constants.values[31] = rect.lensStrength;
+        constants.values[32] = rect.lensBase;
+        constants.values[36] = rect.lensFalloff;
+        constants.values[37] = rect.lensBias;
+        constants.values[38] = rect.lensPower;
+        constants.values[39] = rect.noise;
+        constants.values[40] = timeSeconds;
         return constants;
     }
 

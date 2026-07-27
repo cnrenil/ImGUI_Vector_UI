@@ -23,6 +23,13 @@ namespace IVUI
         float  edgeWidth;     ///<  px width of the refractive rim
         float  edgeHighlight; ///<  0..1 directional specular rim strength
         float  thickness;     ///<  0..1 optical thickness of the glass body
+        float  shapePower;    ///<  rounded-edge lens response exponent
+        float  lensStrength;  ///<  exponential lens curve amplitude
+        float  lensBase;      ///<  base of the lens exponential curve
+        float  lensFalloff;   ///<  distance decay of the lens exponential curve
+        float  lensBias;      ///<  rim bias of the lens exponential curve
+        float  lensPower;     ///<  final power applied to the lens scale
+        float  noise;         ///<  px time-varying refraction noise
         float  glowStrength;  ///<  0..1 outer glow intensity
         float  glowSpread;    ///<  px falloff distance of the outer glow
         float  shadowStrength;///<  0..1 drop-shadow intensity
@@ -35,17 +42,17 @@ namespace IVUI
     /** @brief Binary constant layout consumed by EffectsShaderSource().
      *
      *  Each entry maps directly to one HLSL @c float4 in @c uData. Hosts must
-     *  upload all 32 floats as 32-bit root constants or an equivalent uniform
+     *  upload all 44 floats as 32-bit root constants or an equivalent uniform
      *  buffer layout.
      */
     struct GlassShaderConstants
     {
-        float values[32]{};
+        float values[44]{};
     };
     static_assert(std::is_standard_layout_v<GlassShaderConstants> &&
                   std::is_trivially_copyable_v<GlassShaderConstants> &&
-                  sizeof(GlassShaderConstants) == sizeof(float) * 32,
-                  "Glass shader constants must match HLSL float4 uData[8].");
+                  sizeof(GlassShaderConstants) == sizeof(float) * 44,
+                  "Glass shader constants must match HLSL float4 uData[11].");
     /** @brief Installs the host compositor used to render glass at ImGui window depth. */
     void              SetGlassRenderCallback(GlassRenderCallback callback);
     /** @brief Inserts a backdrop compositor callback into the current ImGui window.
@@ -82,9 +89,10 @@ namespace IVUI
     /** @brief Builds constants for one glass-composite draw.
      *  @param rect Screen-space glass request to encode.
      *  @param renderTargetSize Backdrop texture dimensions in pixels.
+     *  @param timeSeconds Monotonic time used for subtle material noise.
      *  @return Constants compatible with the @c CompositePS entry point.
      */
-    GlassShaderConstants MakeGlassCompositeConstants(const GlassRect& rect, ImVec2 renderTargetSize);
+    GlassShaderConstants MakeGlassCompositeConstants(const GlassRect& rect, ImVec2 renderTargetSize, float timeSeconds);
     /** @brief Returns reusable HLSL for background, Gaussian blur, glass and glow effects.
      *  @return UTF-8 HLSL source containing the effects pass entry points.
      */

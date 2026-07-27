@@ -89,6 +89,13 @@ namespace IVUI
             g.edgeWidth = th.GlassEdgeWidth * S;
             g.edgeHighlight = th.GlassEdgeHighlight;
             g.thickness = th.GlassThickness;
+            g.shapePower = th.GlassShapePower;
+            g.lensStrength = th.GlassLensStrength;
+            g.lensBase = th.GlassLensBase;
+            g.lensFalloff = th.GlassLensFalloff;
+            g.lensBias = th.GlassLensBias;
+            g.lensPower = th.GlassLensPower;
+            g.noise = th.GlassNoise * S;
             g.glowStrength = th.PanelGlow; g.glowSpread = th.PanelGlowSpread * S;
             g.shadowStrength = th.PanelShadow; g.shadowSpread = th.PanelShadowSpread * S;
             SubmitGlass(g);

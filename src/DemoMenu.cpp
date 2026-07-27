@@ -51,6 +51,9 @@ namespace Demo
     static float  g_glassTintStrength = 0.16f, g_glassOpacity = 0.82f;
     static float  g_glassRefraction = 1.25f, g_glassEdgeWidth = 2.0f;
     static float  g_glassEdgeHighlight = 0.22f, g_glassThickness = 0.35f;
+    static float  g_glassShadow = 0.50f;
+    static float  g_glassShapePower = 4.0f, g_glassLensStrength = 0.30f, g_glassLensBase = 5.2f;
+    static float  g_glassLensFalloff = 6.9f, g_glassLensBias = 0.7f, g_glassLensPower = 1.0f, g_glassNoise = 0.0f;
     static bool   g_cfgKeybinds = true, g_streamproof = false;
     static IVUI::Keybind g_kbAim{ ImGuiKey_C }, g_kbEsp{ ImGuiKey_E }, g_kbPanic{ ImGuiKey_Delete };
 
@@ -260,6 +263,14 @@ namespace Demo
             g_glassEdgeWidth = base.GlassEdgeWidth;
             g_glassEdgeHighlight = base.GlassEdgeHighlight;
             g_glassThickness = base.GlassThickness;
+            g_glassShadow = base.PanelShadow;
+            g_glassShapePower = base.GlassShapePower;
+            g_glassLensStrength = base.GlassLensStrength;
+            g_glassLensBase = base.GlassLensBase;
+            g_glassLensFalloff = base.GlassLensFalloff;
+            g_glassLensBias = base.GlassLensBias;
+            g_glassLensPower = base.GlassLensPower;
+            g_glassNoise = base.GlassNoise;
             g_bloomThreshold = base.BloomThreshold;
             g_bloomSaturation = base.BloomSaturation;
             g_bloomSigma = base.BloomSigma;
@@ -286,6 +297,14 @@ namespace Demo
         base.GlassEdgeWidth = ImClamp(g_glassEdgeWidth, 0.5f, 8.0f);
         base.GlassEdgeHighlight = ImClamp(g_glassEdgeHighlight, 0.0f, 1.0f);
         base.GlassThickness = ImClamp(g_glassThickness, 0.0f, 1.0f);
+        base.PanelShadow = ImClamp(g_glassShadow, 0.0f, 1.0f);
+        base.GlassShapePower = ImClamp(g_glassShapePower, 2.0f, 8.0f);
+        base.GlassLensStrength = ImClamp(g_glassLensStrength, 0.0f, 4.0f);
+        base.GlassLensBase = ImClamp(g_glassLensBase, 1.01f, 8.0f);
+        base.GlassLensFalloff = ImClamp(g_glassLensFalloff, 0.1f, 12.0f);
+        base.GlassLensBias = ImClamp(g_glassLensBias, 0.0f, 4.0f);
+        base.GlassLensPower = ImClamp(g_glassLensPower, 0.1f, 4.0f);
+        base.GlassNoise = ImClamp(g_glassNoise, 0.0f, 0.5f);
         IVUI::SetTargetTheme(base);
     }
 
@@ -477,6 +496,14 @@ namespace Demo
         IVUI::SliderFloat("Glass Edge Width", &g_glassEdgeWidth, 0.5f, 8.0f, "%.2f px");
         IVUI::SliderFloat("Glass Rim Light", &g_glassEdgeHighlight, 0.0f, 1.0f, "%.2f");
         IVUI::SliderFloat("Glass Thickness", &g_glassThickness, 0.0f, 1.0f, "%.2f");
+        IVUI::SliderFloat("Glass Shadow", &g_glassShadow, 0.0f, 1.0f, "%.2f");
+        IVUI::SliderFloat("Glass Shape Power", &g_glassShapePower, 2.0f, 8.0f, "%.2f");
+        IVUI::SliderFloat("Glass Lens Strength", &g_glassLensStrength, 0.0f, 4.0f, "%.2f");
+        IVUI::SliderFloat("Glass Lens Base", &g_glassLensBase, 1.01f, 8.0f, "%.2f");
+        IVUI::SliderFloat("Glass Lens Falloff", &g_glassLensFalloff, 0.1f, 12.0f, "%.2f");
+        IVUI::SliderFloat("Glass Lens Bias", &g_glassLensBias, 0.0f, 4.0f, "%.2f");
+        IVUI::SliderFloat("Glass Lens Power", &g_glassLensPower, 0.1f, 4.0f, "%.2f");
+        IVUI::SliderFloat("Glass Noise", &g_glassNoise, 0.0f, 0.5f, "%.2f px");
         IVUI::SliderFloat("UI Scale", &g_scale, 0.8f, 1.4f, "%.2fx");
         IVUI::SliderFloat("Roundness", &g_roundMul, 0.0f, 2.0f, "%.2f");
         IVUI::SliderFloat("Glow", &g_glowMul, 0.0f, 2.5f, "%.2f");
@@ -740,6 +767,13 @@ namespace Demo
                 g.edgeWidth = th.GlassEdgeWidth * S;
                 g.edgeHighlight = th.GlassEdgeHighlight;
                 g.thickness = th.GlassThickness;
+                g.shapePower = th.GlassShapePower;
+                g.lensStrength = th.GlassLensStrength;
+                g.lensBase = th.GlassLensBase;
+                g.lensFalloff = th.GlassLensFalloff;
+                g.lensBias = th.GlassLensBias;
+                g.lensPower = th.GlassLensPower;
+                g.noise = th.GlassNoise * S;
                 g.glowStrength = th.PanelGlow * g_menuVis; g.glowSpread = th.PanelGlowSpread * S;
                 g.shadowStrength = th.PanelShadow * g_menuVis; g.shadowSpread = th.PanelShadowSpread * S;
                 IVUI::SubmitGlass(g);
