@@ -87,6 +87,10 @@ namespace IVUI
         t.GlassTint = t.Surface0;
         t.GlassTintStrength = 0.16f;
         t.GlassOpacity = 0.82f;
+        t.GlassRefraction = 1.25f;
+        t.GlassEdgeWidth = 2.0f;
+        t.GlassEdgeHighlight = 0.22f;
+        t.GlassThickness = 0.35f;
         t.Sheen = 0.0f;
         t.PanelGlow = 0.55f;
         t.PanelGlowSpread = 26.0f;
@@ -401,6 +405,10 @@ namespace IVUI
             t.GlassTint = IM_COL32(178, 207, 238, 255);
             t.GlassTintStrength = 0.28f;
             t.GlassOpacity = 0.68f;
+            t.GlassRefraction = 3.2f;
+            t.GlassEdgeWidth = 3.0f;
+            t.GlassEdgeHighlight = 0.44f;
+            t.GlassThickness = 0.72f;
             t.BloomThreshold = 0.18f;
             t.BloomSaturation = 0.03f;
             t.BloomSigma = 3.0f;
@@ -498,6 +506,10 @@ namespace IVUI
         MorphF(L.PanelBodyAlpha, T.PanelBodyAlpha, k);
         MorphF(L.GlassTintStrength, T.GlassTintStrength, k);
         MorphF(L.GlassOpacity, T.GlassOpacity, k);
+        MorphF(L.GlassRefraction, T.GlassRefraction, k);
+        MorphF(L.GlassEdgeWidth, T.GlassEdgeWidth, k);
+        MorphF(L.GlassEdgeHighlight, T.GlassEdgeHighlight, k);
+        MorphF(L.GlassThickness, T.GlassThickness, k);
         MorphF(L.Sheen, T.Sheen, k);
         MorphF(L.PanelGlow, T.PanelGlow, k);
         MorphF(L.PanelGlowSpread, T.PanelGlowSpread, k);

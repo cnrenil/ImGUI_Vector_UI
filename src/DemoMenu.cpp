@@ -49,6 +49,8 @@ namespace Demo
     static ImVec4 g_accent = ImVec4(1.0f, 180.0f / 255.0f, 169.0f / 255.0f, 1.0f);
     static ImVec4 g_glassTint = ImVec4(0.11f, 0.12f, 0.16f, 1.0f);
     static float  g_glassTintStrength = 0.16f, g_glassOpacity = 0.82f;
+    static float  g_glassRefraction = 1.25f, g_glassEdgeWidth = 2.0f;
+    static float  g_glassEdgeHighlight = 0.22f, g_glassThickness = 0.35f;
     static bool   g_cfgKeybinds = true, g_streamproof = false;
     static IVUI::Keybind g_kbAim{ ImGuiKey_C }, g_kbEsp{ ImGuiKey_E }, g_kbPanic{ ImGuiKey_Delete };
 
@@ -254,6 +256,10 @@ namespace Demo
             g_glassTint = ImGui::ColorConvertU32ToFloat4(base.GlassTint);
             g_glassTintStrength = base.GlassTintStrength;
             g_glassOpacity = base.GlassOpacity;
+            g_glassRefraction = base.GlassRefraction;
+            g_glassEdgeWidth = base.GlassEdgeWidth;
+            g_glassEdgeHighlight = base.GlassEdgeHighlight;
+            g_glassThickness = base.GlassThickness;
             g_bloomThreshold = base.BloomThreshold;
             g_bloomSaturation = base.BloomSaturation;
             g_bloomSigma = base.BloomSigma;
@@ -276,6 +282,10 @@ namespace Demo
         base.GlassTint = ImGui::ColorConvertFloat4ToU32(g_glassTint);
         base.GlassTintStrength = ImClamp(g_glassTintStrength, 0.0f, 1.0f);
         base.GlassOpacity = ImClamp(g_glassOpacity * g_translucencyMul, 0.0f, 1.0f);
+        base.GlassRefraction = ImClamp(g_glassRefraction, 0.0f, 8.0f);
+        base.GlassEdgeWidth = ImClamp(g_glassEdgeWidth, 0.5f, 8.0f);
+        base.GlassEdgeHighlight = ImClamp(g_glassEdgeHighlight, 0.0f, 1.0f);
+        base.GlassThickness = ImClamp(g_glassThickness, 0.0f, 1.0f);
         IVUI::SetTargetTheme(base);
     }
 
@@ -463,6 +473,10 @@ namespace Demo
         IVUI::ColorPicker("Glass Tint", &g_glassTint);
         IVUI::SliderFloat("Glass Tint Mix", &g_glassTintStrength, 0.0f, 1.0f, "%.2f");
         IVUI::SliderFloat("Glass Opacity", &g_glassOpacity, 0.05f, 1.0f, "%.2f");
+        IVUI::SliderFloat("Glass Refraction", &g_glassRefraction, 0.0f, 8.0f, "%.2f px");
+        IVUI::SliderFloat("Glass Edge Width", &g_glassEdgeWidth, 0.5f, 8.0f, "%.2f px");
+        IVUI::SliderFloat("Glass Rim Light", &g_glassEdgeHighlight, 0.0f, 1.0f, "%.2f");
+        IVUI::SliderFloat("Glass Thickness", &g_glassThickness, 0.0f, 1.0f, "%.2f");
         IVUI::SliderFloat("UI Scale", &g_scale, 0.8f, 1.4f, "%.2fx");
         IVUI::SliderFloat("Roundness", &g_roundMul, 0.0f, 2.0f, "%.2f");
         IVUI::SliderFloat("Glow", &g_glowMul, 0.0f, 2.5f, "%.2f");
@@ -722,6 +736,10 @@ namespace Demo
                 g.opacity = th.GlassOpacity * g_menuVis;
                 g.tint = th.GlassTint; g.tintStrength = th.GlassTintStrength;
                 g.accent = th.Accent;
+                g.refraction = th.GlassRefraction * S;
+                g.edgeWidth = th.GlassEdgeWidth * S;
+                g.edgeHighlight = th.GlassEdgeHighlight;
+                g.thickness = th.GlassThickness;
                 g.glowStrength = th.PanelGlow * g_menuVis; g.glowSpread = th.PanelGlowSpread * S;
                 g.shadowStrength = th.PanelShadow * g_menuVis; g.shadowSpread = th.PanelShadowSpread * S;
                 IVUI::SubmitGlass(g);

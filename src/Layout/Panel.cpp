@@ -85,6 +85,10 @@ namespace IVUI
             g.opacity = th.GlassOpacity;
             g.tint = th.GlassTint; g.tintStrength = th.GlassTintStrength;
             g.accent = th.Accent;
+            g.refraction = th.GlassRefraction * S;
+            g.edgeWidth = th.GlassEdgeWidth * S;
+            g.edgeHighlight = th.GlassEdgeHighlight;
+            g.thickness = th.GlassThickness;
             g.glowStrength = th.PanelGlow; g.glowSpread = th.PanelGlowSpread * S;
             g.shadowStrength = th.PanelShadow; g.shadowSpread = th.PanelShadowSpread * S;
             SubmitGlass(g);

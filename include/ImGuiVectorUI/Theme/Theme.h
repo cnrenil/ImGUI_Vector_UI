@@ -72,6 +72,10 @@ namespace IVUI
         float PanelBodyAlpha;    ///<  ImGui-drawn panel/header overlay opacity over GPU glass
         float GlassTintStrength; ///<  0 = pure blur, 1 = fully tinted glass body
         float GlassOpacity;      ///<  final glass layer opacity over the blurred backdrop
+        float GlassRefraction;   ///<  px of edge-only backdrop displacement (0 = flat frosted glass)
+        float GlassEdgeWidth;    ///<  px width of the refractive material rim (unscaled)
+        float GlassEdgeHighlight;///<  0..1 strength of the directional specular rim
+        float GlassThickness;    ///<  0..1 optical depth; increases tint, refraction and shadow
         float Sheen;             ///<  top specular highlight strength (0..1)
         float PanelGlow;         ///<  final framebuffer bloom strength
         float PanelGlowSpread;   ///<  panel glow px falloff (unscaled)

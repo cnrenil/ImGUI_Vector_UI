@@ -18,7 +18,7 @@ namespace IVUI
         return R"(
 Texture2D SourceTex : register(t0);
 SamplerState LinearClamp : register(s0);
-cbuffer Constants : register(b0) { float4 uData[6]; };
+cbuffer Constants : register(b0) { float4 uData[8]; };
 struct VSOut { float4 pos : SV_Position; float2 uv : TEXCOORD0; };
 VSOut VSMain(uint vid : SV_VertexID) {
     VSOut o; float2 p = float2((vid == 2) ? 3.0 : -1.0, (vid == 1) ? 3.0 : -1.0);
@@ -74,14 +74,24 @@ float4 Over(float4 accumulated, float3 color, float alpha) {
 }
 float4 CompositePS(VSOut input) : SV_Target {
     float2 rectMin = uData[0].xy, rectMax = uData[0].zw, center = (rectMin + rectMax) * 0.5, halfSize = (rectMax - rectMin) * 0.5;
-    float radius = uData[1].z, opacity = uData[1].w; float3 tint = uData[2].rgb, accent = uData[3].rgb; float4 fx = uData[5];
+    float radius = uData[1].z, opacity = uData[1].w; float3 tint = uData[2].rgb, accent = uData[3].rgb; float4 material = uData[6], texelData = uData[7]; float4 fx = uData[5];
     float sdf = RoundedBoxSdf(input.pos.xy, center, halfSize, radius), mask = saturate(1.0 - smoothstep(0.0, 1.5, sdf));
-    float border = saturate(1.0 - smoothstep(1.0, 3.5, abs(sdf)));
+    float edgeWidth = max(material.y, 0.5);
+    float border = 1.0 - smoothstep(0.5, edgeWidth, abs(sdf));
+    float epsilon = 1.0;
+    float2 normal = float2(
+        RoundedBoxSdf(input.pos.xy + float2(epsilon, 0.0), center, halfSize, radius) - RoundedBoxSdf(input.pos.xy - float2(epsilon, 0.0), center, halfSize, radius),
+        RoundedBoxSdf(input.pos.xy + float2(0.0, epsilon), center, halfSize, radius) - RoundedBoxSdf(input.pos.xy - float2(0.0, epsilon), center, halfSize, radius));
+    normal = normalize(normal + float2(0.0001, 0.0001));
+    float thickness = saturate(material.w);
+    float2 refractedUv = input.uv + normal * texelData.xy * material.x * border * (0.35 + thickness * 0.65);
     float shadowSdf = RoundedBoxSdf(input.pos.xy, center + float2(0.0, 10.0), halfSize, radius);
-    float shadowAlpha = exp(-max(shadowSdf, 0.0) / max(fx.w, 0.001)) * fx.z * (1.0 - mask);
+    float shadowAlpha = exp(-max(shadowSdf, 0.0) / max(fx.w, 0.001)) * fx.z * (1.0 + thickness * 0.35) * (1.0 - mask);
     float tintStrength = saturate(uData[4].w);
-    float3 glass = lerp(SourceTex.Sample(LinearClamp, input.uv).rgb, tint, tintStrength);
-    glass += accent * (0.08 + border * 0.28);
+    float3 glass = lerp(SourceTex.Sample(LinearClamp, refractedUv).rgb, tint, tintStrength * (0.72 + thickness * 0.28));
+    float lightFacing = saturate(dot(normal, normalize(float2(-0.45, -0.90))));
+    float rim = border * (0.22 + lightFacing * 0.78) * material.z;
+    glass += lerp(accent, float3(1.0, 1.0, 1.0), 0.55) * rim;
     float4 result = float4(0.0, 0.0, 0.0, 0.0); result = Over(result, float3(0.0, 0.0, 0.0), shadowAlpha);
     return Over(result, glass, mask * opacity);
 }
@@ -144,7 +154,7 @@ float4 UiCompositePS(VSOut input) : SV_Target {
         return constants;
     }
 
-    GlassShaderConstants MakeGlassCompositeConstants(const GlassRect& rect)
+    GlassShaderConstants MakeGlassCompositeConstants(const GlassRect& rect, ImVec2 renderTargetSize)
     {
         GlassShaderConstants constants{};
         constants.values[0] = rect.min.x;
@@ -164,6 +174,12 @@ float4 UiCompositePS(VSOut input) : SV_Target {
         constants.values[21] = rect.glowSpread;
         constants.values[22] = rect.shadowStrength;
         constants.values[23] = rect.shadowSpread;
+        constants.values[24] = rect.refraction;
+        constants.values[25] = rect.edgeWidth;
+        constants.values[26] = rect.edgeHighlight;
+        constants.values[27] = rect.thickness;
+        constants.values[28] = renderTargetSize.x > 0.0f ? 1.0f / renderTargetSize.x : 0.0f;
+        constants.values[29] = renderTargetSize.y > 0.0f ? 1.0f / renderTargetSize.y : 0.0f;
         return constants;
     }
 

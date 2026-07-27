@@ -19,6 +19,10 @@ namespace IVUI
         ImU32  tint;          ///<  glass body color (alpha ignored; opacity drives it)
         float  tintStrength;  ///<  0 = pure backdrop blur, 1 = fully tinted glass
         ImU32  accent;        ///<  edge-sheen / accent color
+        float  refraction;    ///<  px of backdrop displacement at the material rim
+        float  edgeWidth;     ///<  px width of the refractive rim
+        float  edgeHighlight; ///<  0..1 directional specular rim strength
+        float  thickness;     ///<  0..1 optical thickness of the glass body
         float  glowStrength;  ///<  0..1 outer glow intensity
         float  glowSpread;    ///<  px falloff distance of the outer glow
         float  shadowStrength;///<  0..1 drop-shadow intensity
@@ -31,17 +35,17 @@ namespace IVUI
     /** @brief Binary constant layout consumed by EffectsShaderSource().
      *
      *  Each entry maps directly to one HLSL @c float4 in @c uData. Hosts must
-     *  upload all 24 floats as 32-bit root constants or an equivalent uniform
+     *  upload all 32 floats as 32-bit root constants or an equivalent uniform
      *  buffer layout.
      */
     struct GlassShaderConstants
     {
-        float values[24]{};
+        float values[32]{};
     };
     static_assert(std::is_standard_layout_v<GlassShaderConstants> &&
                   std::is_trivially_copyable_v<GlassShaderConstants> &&
-                  sizeof(GlassShaderConstants) == sizeof(float) * 24,
-                  "Glass shader constants must match HLSL float4 uData[6].");
+                  sizeof(GlassShaderConstants) == sizeof(float) * 32,
+                  "Glass shader constants must match HLSL float4 uData[8].");
     /** @brief Installs the host compositor used to render glass at ImGui window depth. */
     void              SetGlassRenderCallback(GlassRenderCallback callback);
     /** @brief Inserts a backdrop compositor callback into the current ImGui window.
@@ -77,9 +81,10 @@ namespace IVUI
     GlassShaderConstants MakeGlowCompositeConstants(float strength);
     /** @brief Builds constants for one glass-composite draw.
      *  @param rect Screen-space glass request to encode.
+     *  @param renderTargetSize Backdrop texture dimensions in pixels.
      *  @return Constants compatible with the @c CompositePS entry point.
      */
-    GlassShaderConstants MakeGlassCompositeConstants(const GlassRect& rect);
+    GlassShaderConstants MakeGlassCompositeConstants(const GlassRect& rect, ImVec2 renderTargetSize);
     /** @brief Returns reusable HLSL for background, Gaussian blur, glass and glow effects.
      *  @return UTF-8 HLSL source containing the effects pass entry points.
      */
