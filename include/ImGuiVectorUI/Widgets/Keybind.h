@@ -1,13 +1,13 @@
-// ImGuiVectorUI — dynamic keybind row: primary + secondary key + activation mode.
+/// ImGuiVectorUI — dynamic keybind row: primary + secondary key + activation mode.
 #pragma once
 
 namespace IVUI
 {
     struct Keybind
     {
-        int key1 = 0; // ImGuiKey_None
+        int key1 = 0; ///<  ImGuiKey_None
         int key2 = 0;
-        int mode = 0; // 0 = Toggle, 1 = Hold, 2 = Always
+        int mode = 0; ///<  0 = Toggle, 1 = Hold, 2 = Always
     };
 
     /** @brief Draws and edits a two-key binding with an activation mode.

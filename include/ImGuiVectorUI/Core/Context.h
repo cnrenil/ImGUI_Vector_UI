@@ -14,15 +14,15 @@ namespace IVUI
     {
         AnimRegistry       anim;
         std::vector<Theme> themeStack;
-        Theme              themeTarget;               // morph target (set each frame)
-        Theme              themeLive;                 // eased toward target; published to stack base
-        bool               themeInit = false;         // themeLive seeded yet?
-        float              deltaTime = 1.0f / 60.0f; // clamped real frame time
+        Theme              themeTarget;               ///<  morph target (set each frame)
+        Theme              themeLive;                 ///<  eased toward target; published to stack base
+        bool               themeInit = false;         ///<  themeLive seeded yet?
+        float              deltaTime = 1.0f / 60.0f; ///<  clamped real frame time
         unsigned           frameCount = 0;
         ImFont*            fontRegular = nullptr;
         ImFont*            fontTitle = nullptr;
-        bool               wantCaptureHotkey = false; // a HotkeyInput is capturing this frame
-        float              contentScale = 1.0f;       // DPI scale from the host
+        bool               wantCaptureHotkey = false; ///<  a HotkeyInput is capturing this frame
+        float              contentScale = 1.0f;       ///<  DPI scale from the host
     };
 
     /** @brief Creates the library context after the ImGui backend is initialized. */

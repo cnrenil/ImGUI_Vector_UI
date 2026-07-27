@@ -1,5 +1,5 @@
-// ImGuiVectorUI — the "measure lambda content, animate height" helper, extracted
-// once from MYGui's three container widgets.
+/// ImGuiVectorUI — the "measure lambda content, animate height" helper, extracted
+/// once from MYGui's three container widgets.
 #pragma once
 
 #include "imgui.h"

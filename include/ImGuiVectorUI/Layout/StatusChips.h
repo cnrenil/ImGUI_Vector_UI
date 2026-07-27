@@ -1,4 +1,4 @@
-// ImGuiVectorUI — always-on "active features" HUD chip list.
+/// ImGuiVectorUI — always-on "active features" HUD chip list.
 #pragma once
 
 #include "imgui.h"

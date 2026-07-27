@@ -13,16 +13,16 @@ namespace IVUI
     /** @brief Screen-space parameters for one glass backdrop. */
     struct GlassRect
     {
-        ImVec2 min, max;      // rect in screen pixels
-        float  rounding;      // corner radius in pixels
-        float  opacity;       // 0..1 fill strength of the glass tint
-        ImU32  tint;          // glass body color (alpha ignored; opacity drives it)
-        float  tintStrength;  // 0 = pure backdrop blur, 1 = fully tinted glass
-        ImU32  accent;        // edge-sheen / accent color
-        float  glowStrength;  // 0..1 outer glow intensity
-        float  glowSpread;    // px falloff distance of the outer glow
-        float  shadowStrength;// 0..1 drop-shadow intensity
-        float  shadowSpread;  // px falloff distance of the drop shadow
+        ImVec2 min, max;      ///<  rect in screen pixels
+        float  rounding;      ///<  corner radius in pixels
+        float  opacity;       ///<  0..1 fill strength of the glass tint
+        ImU32  tint;          ///<  glass body color (alpha ignored; opacity drives it)
+        float  tintStrength;  ///<  0 = pure backdrop blur, 1 = fully tinted glass
+        ImU32  accent;        ///<  edge-sheen / accent color
+        float  glowStrength;  ///<  0..1 outer glow intensity
+        float  glowSpread;    ///<  px falloff distance of the outer glow
+        float  shadowStrength;///<  0..1 drop-shadow intensity
+        float  shadowSpread;  ///<  px falloff distance of the drop shadow
     };
 
     /** @brief Host hook invoked from an ImGui draw-list callback at a panel's Z position. */

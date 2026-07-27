@@ -9,9 +9,9 @@ namespace IVUI
     /** @brief Optional title-bar controls and per-frame panel interaction results. */
     struct PanelHeader
     {
-        bool  showEdit = false;  // draw a pencil (edit-mode) button
-        bool  showClose = false; // draw an "x" button
-        bool  editActive = false;// highlight the pencil (this panel is being edited)
+        bool  showEdit = false;  ///<  draw a pencil (edit-mode) button
+        bool  showClose = false; ///<  draw an "x" button
+        bool  editActive = false;///<  highlight the pencil (this panel is being edited)
 
         /** @brief Optional buffer that enables inline title editing. */
         char* editBuf = nullptr;
@@ -21,8 +21,8 @@ namespace IVUI
         /** @{ */
         bool  editClicked = false;
         bool  closeClicked = false;
-        bool  nameChanged = false;             // editBuf holds the new name this frame
-        const char* droppedFeature = nullptr;  // a feature id dropped onto the panel, or null
+        bool  nameChanged = false;             ///<  editBuf holds the new name this frame
+        const char* droppedFeature = nullptr;  ///<  a feature id dropped onto the panel, or null
         /** @} */
     };
 

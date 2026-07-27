@@ -1,14 +1,14 @@
-// ImGuiVectorUI — single public entry point.
-//
-// An animation-driven, ImDrawList-rendered widget library for Dear ImGui.
-// Every control is hand-drawn against a semantic theme, with per-widget easing
-// keyed by ImGui ID. Immediate-mode, namespace IVUI.
-//
-// Host usage:
-//   IVUI::CreateContext();                 // after ImGui_ImplXXX_Init
-//   ... per frame, after ImGui::NewFrame(): IVUI::NewFrame();
-//   ... configure IVUI::SetGlassRenderCallback() before rendering draw data
-//   IVUI::DestroyContext();                // before ImGui::DestroyContext()
+/// ImGuiVectorUI — single public entry point.
+///
+/// An animation-driven, ImDrawList-rendered widget library for Dear ImGui.
+/// Every control is hand-drawn against a semantic theme, with per-widget easing
+/// keyed by ImGui ID. Immediate-mode, namespace IVUI.
+///
+/// Host usage:
+///   IVUI::CreateContext();                 ///< after ImGui_ImplXXX_Init
+///   ... per frame, after ImGui::NewFrame(): IVUI::NewFrame();
+///   ... configure IVUI::SetGlassRenderCallback() before rendering draw data
+///   IVUI::DestroyContext();                ///< before ImGui::DestroyContext()
 #pragma once
 
 #include "ImGuiVectorUI/Core/Types.h"
