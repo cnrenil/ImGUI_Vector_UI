@@ -73,12 +73,22 @@ float Hash21(float2 p) {
     p += dot(p, p + 34.345);
     return frac(p.x * p.y);
 }
+float SmoothNoise21(float2 p) {
+    float2 cell = floor(p), local = frac(p);
+    float2 curve = local * local * (3.0 - 2.0 * local);
+    float a = Hash21(cell), b = Hash21(cell + float2(1.0, 0.0));
+    float c = Hash21(cell + float2(0.0, 1.0)), d = Hash21(cell + float2(1.0, 1.0));
+    return lerp(lerp(a, b, curve.x), lerp(c, d, curve.x), curve.y);
+}
 float2 SafeRefractedUv(float2 originalUv, float2 refractedUv, float2 texel) {
-    float margin = max(texel.x, texel.y) * 6.0;
-    float2 lower = refractedUv - margin;
-    float2 upper = (1.0 - margin) - refractedUv;
-    float inBounds = smoothstep(-margin, margin, min(min(lower.x, lower.y), min(upper.x, upper.y)));
-    return lerp(originalUv, refractedUv, inBounds);
+    float2 safeMin = texel * 0.5, safeMax = 1.0 - safeMin;
+    float2 offset = refractedUv - originalUv;
+    float scale = 1.0;
+    if (offset.x > 0.0) scale = min(scale, (safeMax.x - originalUv.x) / offset.x);
+    if (offset.x < 0.0) scale = min(scale, (safeMin.x - originalUv.x) / offset.x);
+    if (offset.y > 0.0) scale = min(scale, (safeMax.y - originalUv.y) / offset.y);
+    if (offset.y < 0.0) scale = min(scale, (safeMin.y - originalUv.y) / offset.y);
+    return originalUv + offset * saturate(scale);
 }
 float4 Over(float4 accumulated, float3 color, float alpha) {
     alpha = saturate(alpha); accumulated.rgb = color * alpha + accumulated.rgb * (1.0 - alpha);
@@ -97,15 +107,22 @@ float4 CompositePS(VSOut input) : SV_Target {
     normal = normalize(normal + float2(0.0001, 0.0001));
     float thickness = saturate(material.w);
     float lensRadius = max(min(halfSize.x, halfSize.y), 1.0);
-    float edgeDistance = saturate(max(-sdf, 0.0) / lensRadius);
+    float insideDistance = max(-sdf, 0.0);
+    float edgeDistance = saturate(insideDistance / lensRadius);
     float interiorDistance = pow(edgeDistance, 2.0 / max(texelData.z, 2.0));
     float exponentialBase = max(lens.x * 2.718281828, 0.0001);
     float lensScale = 1.0 - texelData.w * pow(exponentialBase, -lensCurve.x * interiorDistance - lensCurve.y);
     lensScale = pow(max(lensScale, 0.02), max(lensCurve.z, 0.1));
-    float lensCompression = saturate(1.0 - lensScale);
+    // Rounded-box normals are discontinuous on the interior medial axes. Limit
+    // normal-driven refraction to a narrow rim where the nearest edge is unique.
+    float lensBandWidth = min(lensRadius * 0.12, 32.0);
+    float lensBand = 1.0 - smoothstep(0.0, max(lensBandWidth, 1.0), insideDistance);
+    float lensCompression = saturate(1.0 - lensScale) * lensBand;
     float2 refractedPosition = input.pos.xy - normal * lensCompression * lensRadius * 0.10;
-    float noise = (Hash21(input.pos.xy * 0.13 + motion.y * 0.25) - 0.5) * motion.x;
-    float2 refractedUv = refractedPosition * texelData.xy + normal * texelData.xy * (material.x * border * (0.35 + thickness * 0.65) + noise);
+    float2 noisePosition = input.pos.xy * 0.045 + float2(motion.y * 0.35, -motion.y * 0.23);
+    float2 surfaceNoise = float2(SmoothNoise21(noisePosition), SmoothNoise21(noisePosition + 19.19)) * 2.0 - 1.0;
+    float rimRefraction = material.x * border * (0.35 + thickness * 0.65);
+    float2 refractedUv = refractedPosition * texelData.xy + texelData.xy * (normal * rimRefraction + surfaceNoise * motion.x * lensBand);
     refractedUv = SafeRefractedUv(input.uv, refractedUv, texelData.xy);
     float shadowSpread = max(fx.w, 0.001);
     float shadowSdf = RoundedBoxSdf(input.pos.xy, center + float2(0.0, min(12.0, shadowSpread * 0.30)), halfSize, radius);

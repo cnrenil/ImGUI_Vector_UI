@@ -422,7 +422,7 @@ namespace IVUI
             t.GlassLensFalloff = 6.9f;
             t.GlassLensBias = 0.7f;
             t.GlassLensPower = 1.0f;
-            t.GlassNoise = 0.12f;
+            t.GlassNoise = 0.35f;
             t.BloomThreshold = 0.18f;
             t.BloomSaturation = 0.03f;
             t.BloomSigma = 3.0f;

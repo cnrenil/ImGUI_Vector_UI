@@ -304,7 +304,7 @@ namespace Demo
         base.GlassLensFalloff = ImClamp(g_glassLensFalloff, 0.1f, 12.0f);
         base.GlassLensBias = ImClamp(g_glassLensBias, 0.0f, 4.0f);
         base.GlassLensPower = ImClamp(g_glassLensPower, 0.1f, 4.0f);
-        base.GlassNoise = ImClamp(g_glassNoise, 0.0f, 0.5f);
+        base.GlassNoise = ImClamp(g_glassNoise, 0.0f, 3.0f);
         IVUI::SetTargetTheme(base);
     }
 
@@ -503,7 +503,7 @@ namespace Demo
         IVUI::SliderFloat("Glass Lens Falloff", &g_glassLensFalloff, 0.1f, 12.0f, "%.2f");
         IVUI::SliderFloat("Glass Lens Bias", &g_glassLensBias, 0.0f, 4.0f, "%.2f");
         IVUI::SliderFloat("Glass Lens Power", &g_glassLensPower, 0.1f, 4.0f, "%.2f");
-        IVUI::SliderFloat("Glass Noise", &g_glassNoise, 0.0f, 0.5f, "%.2f px");
+        IVUI::SliderFloat("Glass Noise", &g_glassNoise, 0.0f, 3.0f, "%.2f px");
         IVUI::SliderFloat("UI Scale", &g_scale, 0.8f, 1.4f, "%.2fx");
         IVUI::SliderFloat("Roundness", &g_roundMul, 0.0f, 2.0f, "%.2f");
         IVUI::SliderFloat("Glow", &g_glowMul, 0.0f, 2.5f, "%.2f");
