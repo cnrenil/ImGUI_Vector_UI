@@ -91,6 +91,9 @@ float4 GlowPS(VSOut input) : SV_Target {
     float bloom = uData[0].x;
     return float4(outColorBlend * bloom, 0.0);
 }
+float4 UiCompositePS(VSOut input) : SV_Target {
+    return SourceTex.Sample(LinearClamp, input.uv);
+}
  )";
     }
 
@@ -156,9 +159,6 @@ float4 GlowPS(VSOut input) : SV_Target {
         constants.values[12] = ((rect.accent >> IM_COL32_R_SHIFT) & 0xFF) / 255.0f;
         constants.values[13] = ((rect.accent >> IM_COL32_G_SHIFT) & 0xFF) / 255.0f;
         constants.values[14] = ((rect.accent >> IM_COL32_B_SHIFT) & 0xFF) / 255.0f;
-        constants.values[16] = ((rect.glow >> IM_COL32_R_SHIFT) & 0xFF) / 255.0f;
-        constants.values[17] = ((rect.glow >> IM_COL32_G_SHIFT) & 0xFF) / 255.0f;
-        constants.values[18] = ((rect.glow >> IM_COL32_B_SHIFT) & 0xFF) / 255.0f;
         constants.values[19] = rect.tintStrength;
         constants.values[20] = rect.glowStrength;
         constants.values[21] = rect.glowSpread;

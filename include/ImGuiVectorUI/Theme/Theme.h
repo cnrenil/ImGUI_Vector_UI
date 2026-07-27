@@ -34,7 +34,6 @@ namespace IVUI
         ImU32 TrackOn;       // toggle knob (on)
         ImU32 Knob;          // slider knob
 
-        ImU32 Glow;          // accent @ low alpha for bloom
         ImU32 HoverTint;     // additive tint drawn on hovered rows/controls
         ImU32 GlassTint;     // independent tint mixed into the blurred panel backdrop
 

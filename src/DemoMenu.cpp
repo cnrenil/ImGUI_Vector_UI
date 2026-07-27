@@ -721,7 +721,7 @@ namespace Demo
                 g.rounding = mround;
                 g.opacity = th.GlassOpacity * g_menuVis;
                 g.tint = th.GlassTint; g.tintStrength = th.GlassTintStrength;
-                g.accent = th.Accent; g.glow = th.Glow;
+                g.accent = th.Accent;
                 g.glowStrength = th.PanelGlow * g_menuVis; g.glowSpread = th.PanelGlowSpread * S;
                 g.shadowStrength = th.PanelShadow * g_menuVis; g.shadowSpread = th.PanelShadowSpread * S;
                 IVUI::SubmitGlass(g);

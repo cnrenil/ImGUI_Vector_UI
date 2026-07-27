@@ -23,7 +23,7 @@ namespace IVUI
         ImU32* cols[] = {
             &t.Accent, &t.AccentHover, &t.AccentActive, &t.AccentMuted, &t.OnAccent,
             &t.Surface0, &t.Surface1, &t.Surface2, &t.Overlay, &t.Border, &t.BorderMuted,
-            &t.Text, &t.TextMuted, &t.TextDisabled, &t.TrackOff, &t.TrackOn, &t.Knob, &t.Glow,
+            &t.Text, &t.TextMuted, &t.TextDisabled, &t.TrackOff, &t.TrackOn, &t.Knob,
             &t.HoverTint, &t.GlassTint
         };
         for (ImU32* c : cols)
@@ -52,7 +52,6 @@ namespace IVUI
         t.AccentHover = LerpCol(t.Accent, IM_COL32_WHITE, 0.20f);
         t.AccentActive = LerpCol(t.Accent, IM_COL32_BLACK, 0.15f);
         t.AccentMuted = WithAlpha(t.Accent, 80);
-        t.Glow = WithAlpha(t.Accent, 60);
         t.Knob = t.Accent;
         t.TrackOn = LerpCol(t.Accent, IM_COL32_BLACK, 0.35f);
     }
@@ -141,8 +140,6 @@ namespace IVUI
         t.TrackOn = IM_COL32(128, 86, 75, 255);
         t.Knob = IM_COL32(251, 180, 169, 255);
 
-        t.Glow = IM_COL32(255, 180, 169, 60);
-
         FillCommonMetrics(t);
         return t;
     }
@@ -171,8 +168,6 @@ namespace IVUI
         t.TrackOff = IM_COL32(70, 78, 92, 255);
         t.TrackOn = IM_COL32(24, 120, 150, 255);
         t.Knob = IM_COL32(51, 199, 250, 255);
-
-        t.Glow = IM_COL32(51, 199, 250, 60);
 
         FillCommonMetrics(t);
         return t;
@@ -474,10 +469,10 @@ namespace IVUI
 
         ImU32* lc[] = { &L.Accent,&L.AccentHover,&L.AccentActive,&L.AccentMuted,&L.OnAccent,
             &L.Surface0,&L.Surface1,&L.Surface2,&L.Overlay,&L.Border,&L.BorderMuted,
-            &L.Text,&L.TextMuted,&L.TextDisabled,&L.TrackOff,&L.TrackOn,&L.Knob,&L.Glow,&L.HoverTint,&L.GlassTint };
+            &L.Text,&L.TextMuted,&L.TextDisabled,&L.TrackOff,&L.TrackOn,&L.Knob,&L.HoverTint,&L.GlassTint };
         const ImU32* tc[] = { &T.Accent,&T.AccentHover,&T.AccentActive,&T.AccentMuted,&T.OnAccent,
             &T.Surface0,&T.Surface1,&T.Surface2,&T.Overlay,&T.Border,&T.BorderMuted,
-            &T.Text,&T.TextMuted,&T.TextDisabled,&T.TrackOff,&T.TrackOn,&T.Knob,&T.Glow,&T.HoverTint,&T.GlassTint };
+            &T.Text,&T.TextMuted,&T.TextDisabled,&T.TrackOff,&T.TrackOn,&T.Knob,&T.HoverTint,&T.GlassTint };
         for (int i = 0; i < (int)(sizeof(lc) / sizeof(lc[0])); ++i)
             MorphColor(*lc[i], *tc[i], k);
 

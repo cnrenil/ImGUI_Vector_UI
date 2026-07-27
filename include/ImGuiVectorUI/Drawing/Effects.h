@@ -19,7 +19,6 @@ namespace IVUI
         ImU32  tint;          // glass body color (alpha ignored; opacity drives it)
         float  tintStrength;  // 0 = pure backdrop blur, 1 = fully tinted glass
         ImU32  accent;        // edge-sheen / accent color
-        ImU32  glow;          // outer-glow color (alpha ignored; glowStrength drives it)
         float  glowStrength;  // 0..1 outer glow intensity
         float  glowSpread;    // px falloff distance of the outer glow
         float  shadowStrength;// 0..1 drop-shadow intensity

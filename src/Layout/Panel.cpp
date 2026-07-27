@@ -84,7 +84,7 @@ namespace IVUI
             g.rounding = pround;
             g.opacity = th.GlassOpacity;
             g.tint = th.GlassTint; g.tintStrength = th.GlassTintStrength;
-            g.accent = th.Accent; g.glow = th.Glow;
+            g.accent = th.Accent;
             g.glowStrength = th.PanelGlow; g.glowSpread = th.PanelGlowSpread * S;
             g.shadowStrength = th.PanelShadow; g.shadowSpread = th.PanelShadowSpread * S;
             SubmitGlass(g);
