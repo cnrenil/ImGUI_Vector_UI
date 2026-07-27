@@ -24,13 +24,25 @@ namespace IVUI
             &t.Accent, &t.AccentHover, &t.AccentActive, &t.AccentMuted, &t.OnAccent,
             &t.Surface0, &t.Surface1, &t.Surface2, &t.Overlay, &t.Border, &t.BorderMuted,
             &t.Text, &t.TextMuted, &t.TextDisabled, &t.TrackOff, &t.TrackOn, &t.Knob, &t.Glow,
-            &t.HoverTint
+            &t.HoverTint, &t.GlassTint
         };
         for (ImU32* c : cols)
         {
             const int alpha = (int)(((*c >> IM_COL32_A_SHIFT) & 0xFF) * a);
             *c = (*c & ~IM_COL32_A_MASK) | ((ImU32)alpha << IM_COL32_A_SHIFT);
         }
+        // GPU glass and other intensity-based effects do not consume color alpha.
+        t.SurfaceAlpha *= a;
+        t.WidgetGlow *= a;
+        t.Sheen *= a;
+        t.PanelBodyAlpha *= a;
+        t.GlassOpacity *= a;
+        t.PanelGlow *= a;
+        t.PanelShadow *= a;
+        t.BackdropAlpha *= a;
+        t.HudPanelAlpha *= a;
+        t.HudRowAlpha *= a;
+        t.HudRainbowGlow *= a;
         return t;
     }
 
@@ -67,17 +79,22 @@ namespace IVUI
         t.FontRegular = nullptr;
         t.FontTitle = nullptr;
 
-        // Style-parameter defaults — chosen so the existing presets keep their
-        // current look (no per-widget glow, pill controls, circular knobs, opaque).
         t.WidgetGlow = 0.0f;
         t.WidgetGlowSpread = 10.0f;
         t.ControlCornerFrac = 0.5f;
         t.KnobRoundFrac = 1.0f;
         t.SurfaceAlpha = 1.0f;
         t.PanelBodyAlpha = 0.72f;
+        t.GlassTint = t.Surface0;
+        t.GlassTintStrength = 0.16f;
+        t.GlassOpacity = 0.82f;
         t.Sheen = 0.0f;
         t.PanelGlow = 0.55f;
         t.PanelGlowSpread = 26.0f;
+        t.BloomThreshold = 0.08f;
+        t.BloomSaturation = 0.04f;
+        t.BloomSigma = 3.0f;
+        t.BackdropBlurSigma = 16.0f;
         t.PanelShadow = 0.5f;
         t.PanelShadowSpread = 18.0f;
         t.BackdropAlpha = 1.0f;
@@ -201,10 +218,6 @@ namespace IVUI
         }
     }
 
-    // ---- Global visual styles ---------------------------------------------
-    // A style is a whole look: colors + shape + glow + translucency. Each starts
-    // from the shared metric defaults (FillCommonMetrics via a preset) and then
-    // overrides colors and style parameters.
     Theme GetStyle(Style s)
     {
         switch (s)
@@ -212,7 +225,6 @@ namespace IVUI
         default:
         case Style::MaterialYou:
         {
-            // The current peach look = "Material You": soft, tonal, opaque, no glow.
             Theme t = ThemeInjectionPeach();
             t.RoundingPanel = 14.0f;
             t.RoundingControl = 11.0f;
@@ -231,8 +243,6 @@ namespace IVUI
         case Style::Vape:
         {
             Theme t{};
-            // VAPE's chrome is compact, near-black and deliberately restrained;
-            // the violet highlight is a sharp state signal rather than a wash.
             t.Surface0 = IM_COL32(11, 10, 14, 255);
             t.Surface1 = IM_COL32(17, 16, 21, 255);
             t.Surface2 = IM_COL32(29, 27, 35, 255);
@@ -264,6 +274,14 @@ namespace IVUI
             t.HudRowAlpha = 0.72f;
             t.HudBorderThickness = 2.0f;
             t.PanelGlow = 0.16f;
+            t.BloomThreshold = 0.16f;
+            t.BloomSaturation = 0.10f;
+            t.BloomSigma = 2.2f;
+            t.BackdropBlurSigma = 9.0f;
+            t.GlassTint = IM_COL32(28, 20, 42, 255);
+            t.GlassTintStrength = 0.24f;
+            t.GlassOpacity = 0.80f;
+            t.PanelBodyAlpha = 0.48f;
             t.PanelShadow = 0.72f;
             t.PanelShadowSpread = 22.0f;
             t.BackdropAlpha = 0.90f;
@@ -272,8 +290,6 @@ namespace IVUI
         case Style::Neverlose:
         {
             Theme t{};
-            // Neverlose uses a cool blue-grey hierarchy: crisp dividers, low
-            // contrast surfaces and a bright blue only on live state.
             t.Surface0 = IM_COL32(12, 14, 17, 255);
             t.Surface1 = IM_COL32(18, 21, 25, 255);
             t.Surface2 = IM_COL32(28, 33, 39, 255);
@@ -307,6 +323,14 @@ namespace IVUI
             t.HudRainbowGlow = 0.24f;
             t.HudBorderThickness = 1.5f;
             t.PanelGlow = 0.24f;
+            t.BloomThreshold = 0.12f;
+            t.BloomSaturation = 0.08f;
+            t.BloomSigma = 2.6f;
+            t.BackdropBlurSigma = 12.0f;
+            t.GlassTint = IM_COL32(18, 35, 53, 255);
+            t.GlassTintStrength = 0.20f;
+            t.GlassOpacity = 0.78f;
+            t.PanelBodyAlpha = 0.52f;
             t.PanelShadow = 0.64f;
             t.PanelShadowSpread = 20.0f;
             t.BackdropAlpha = 0.82f;
@@ -342,13 +366,18 @@ namespace IVUI
             t.PanelGlow = 0.0f;
             t.PanelShadow = 0.0f;
             t.PanelBodyAlpha = 1.0f;
+            t.GlassTint = t.Surface0;
+            t.GlassTintStrength = 0.96f;
+            t.GlassOpacity = 1.0f;
+            t.BloomThreshold = 0.50f;
+            t.BloomSaturation = 0.20f;
+            t.BloomSigma = 1.0f;
+            t.BackdropBlurSigma = 0.0f;
             return t;
         }
         case Style::iOSGlass:
         {
             Theme t{};
-            // Liquid Glass needs light transmission and a bright rim. The tint is
-            // intentionally neutral-blue so wallpaper/desktop colour remains legible.
             t.Surface0 = IM_COL32(118, 136, 164, 255);
             t.Surface1 = IM_COL32(151, 168, 194, 255);
             t.Surface2 = IM_COL32(190, 205, 227, 255);
@@ -374,6 +403,13 @@ namespace IVUI
             t.WidgetGlowSpread = 14.0f;
             t.SurfaceAlpha = 0.42f;       // translucent glass
             t.PanelBodyAlpha = 0.27f;
+            t.GlassTint = IM_COL32(178, 207, 238, 255);
+            t.GlassTintStrength = 0.28f;
+            t.GlassOpacity = 0.68f;
+            t.BloomThreshold = 0.18f;
+            t.BloomSaturation = 0.03f;
+            t.BloomSigma = 3.0f;
+            t.BackdropBlurSigma = 16.0f;
             t.Sheen = 0.95f;              // bright liquid-glass rim
             t.KnobRoundFrac = 1.0f;
             t.Selection = SEL_FullFill;
@@ -410,9 +446,6 @@ namespace IVUI
 
     static Theme g_fallback = ThemeInjectionPeach();
 
-    // ---- Morph layer -------------------------------------------------------
-    // Widgets read the live theme; each frame it eases toward the target theme so
-    // switching style (or dragging accent) animates instead of snapping.
     static void MorphColor(ImU32& c, ImU32 target, float k) { c = LerpCol(c, target, k); }
     static void MorphF(float& v, float target, float k) { v += (target - v) * k; }
 
@@ -439,17 +472,15 @@ namespace IVUI
         const Theme& T = c->themeTarget;
         const float k = 1.0f - expf(-12.0f * dt); // framerate-independent smoothing
 
-        // Colors (all 19 tokens).
         ImU32* lc[] = { &L.Accent,&L.AccentHover,&L.AccentActive,&L.AccentMuted,&L.OnAccent,
             &L.Surface0,&L.Surface1,&L.Surface2,&L.Overlay,&L.Border,&L.BorderMuted,
-            &L.Text,&L.TextMuted,&L.TextDisabled,&L.TrackOff,&L.TrackOn,&L.Knob,&L.Glow,&L.HoverTint };
+            &L.Text,&L.TextMuted,&L.TextDisabled,&L.TrackOff,&L.TrackOn,&L.Knob,&L.Glow,&L.HoverTint,&L.GlassTint };
         const ImU32* tc[] = { &T.Accent,&T.AccentHover,&T.AccentActive,&T.AccentMuted,&T.OnAccent,
             &T.Surface0,&T.Surface1,&T.Surface2,&T.Overlay,&T.Border,&T.BorderMuted,
-            &T.Text,&T.TextMuted,&T.TextDisabled,&T.TrackOff,&T.TrackOn,&T.Knob,&T.Glow,&T.HoverTint };
+            &T.Text,&T.TextMuted,&T.TextDisabled,&T.TrackOff,&T.TrackOn,&T.Knob,&T.Glow,&T.HoverTint,&T.GlassTint };
         for (int i = 0; i < (int)(sizeof(lc) / sizeof(lc[0])); ++i)
             MorphColor(*lc[i], *tc[i], k);
 
-        // Continuous scalars.
         MorphF(L.RoundingPanel, T.RoundingPanel, k);
         MorphF(L.RoundingControl, T.RoundingControl, k);
         MorphF(L.RoundingPill, T.RoundingPill, k);
@@ -470,9 +501,15 @@ namespace IVUI
         MorphF(L.KnobRoundFrac, T.KnobRoundFrac, k);
         MorphF(L.SurfaceAlpha, T.SurfaceAlpha, k);
         MorphF(L.PanelBodyAlpha, T.PanelBodyAlpha, k);
+        MorphF(L.GlassTintStrength, T.GlassTintStrength, k);
+        MorphF(L.GlassOpacity, T.GlassOpacity, k);
         MorphF(L.Sheen, T.Sheen, k);
         MorphF(L.PanelGlow, T.PanelGlow, k);
         MorphF(L.PanelGlowSpread, T.PanelGlowSpread, k);
+        MorphF(L.BloomThreshold, T.BloomThreshold, k);
+        MorphF(L.BloomSaturation, T.BloomSaturation, k);
+        MorphF(L.BloomSigma, T.BloomSigma, k);
+        MorphF(L.BackdropBlurSigma, T.BackdropBlurSigma, k);
         MorphF(L.PanelShadow, T.PanelShadow, k);
         MorphF(L.PanelShadowSpread, T.PanelShadowSpread, k);
         MorphF(L.BackdropAlpha, T.BackdropAlpha, k);
@@ -485,7 +522,7 @@ namespace IVUI
         MorphF(L.HudRainbowSpeed, T.HudRainbowSpeed, k);
         MorphF(L.HudRainbowGlow, T.HudRainbowGlow, k);
 
-        // Snap: fonts/scale (atlas rebake + text jitter) and discrete look flags.
+        // Font changes require atlas rebuilds; discrete visual modes must not interpolate.
         L.Scale = T.Scale;
         L.FontSizeTitle = T.FontSizeTitle;
         L.FontSizeLabel = T.FontSizeLabel;
@@ -497,7 +534,6 @@ namespace IVUI
         L.FillGradient = T.FillGradient;
         L.DynamicIslandToast = T.DynamicIslandToast;
 
-        // Publish the eased theme as the stack base (widgets read it via GetTheme).
         if (!c->themeStack.empty())
             c->themeStack.front() = L;
     }

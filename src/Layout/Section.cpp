@@ -20,18 +20,15 @@ namespace IVUI
         ImDrawList* draw = ImGui::GetWindowDrawList();
         const float S = th.Scale;
         const float headerH = th.ControlHeight * S;
-        // Reserve a small right gutter so the overlay scrollbar never covers the
-        // full-width header.
+        // Keep the header clear of a possible overlay scrollbar.
         const float avail = ImMax(ImGui::GetContentRegionAvail().x - 8.0f * S, 40.0f * S);
 
-        // Header hit target.
         const bool clicked = ImGui::InvisibleButton(label, ImVec2(avail, headerH));
         if (clicked)
             *open = !*open;
         const ImVec2 hmin = ImGui::GetItemRectMin();
         const ImVec2 hmax = ImGui::GetItemRectMax();
 
-        // Header color eases with open state, per the style's selection idiom.
         a.direction2 = *open ? 1.0f : -1.0f;
         a.t2 = ImClamp(a.t2 + DeltaTime() * 6.0f * a.direction2, 0.0f, 1.0f);
         const float open01 = a.t2;
@@ -43,9 +40,7 @@ namespace IVUI
         const ImU32 txtCol = fullFill
             ? EaseValueColor(ImColor(th.Text), ImColor(th.OnAccent), open01, EASE_IN_OUT_CIRC)
             : EaseValueColor(ImColor(th.Text), ImColor(th.Accent), open01, EASE_IN_OUT_CIRC);
-        WidgetGlow(draw, hmin, hmax, th.Accent, rnd, open01);
         draw->AddRectFilled(hmin, hmax, WithAlphaMul(hdrCol, th.SurfaceAlpha), rnd);
-        // Selection accent marks for non-fill styles.
         if (th.Selection == SEL_Underline)
             draw->AddLine(ImVec2(hmin.x + rnd, hmax.y - 1.5f * S), ImVec2(hmax.x - rnd, hmax.y - 1.5f * S),
                           WithAlphaMul(th.Accent, open01), ImMax(2.0f * S, 1.0f));
@@ -59,11 +54,9 @@ namespace IVUI
         const ImVec2 labelSize = CalcTextScaled(label, th.FontSizeLabel);
         AddTextScaled(draw, ImVec2(hmin.x + 12.0f * S, hmin.y + (headerH - labelSize.y) * 0.5f), txtCol, label, th.FontSizeLabel);
 
-        // Chevron (down when closed, up when open).
         const ImVec2 chevC = ImVec2(hmax.x - 16.0f * S, hmin.y + headerH * 0.5f);
         IconChevron(draw, chevC, 14.0f * S, txtCol, ImMax(1.6f * S, 1.0f), *open ? 1 : 0);
 
-        // Body reveal.
         a.direction = *open ? 1.0f : -1.0f;
         a.t = ImClamp(a.t + DeltaTime() * 5.0f * a.direction, 0.0f, 1.0f);
         if (a.t > 0.001f)

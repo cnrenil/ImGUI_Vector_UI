@@ -34,8 +34,7 @@ namespace IVUI
         bool changed = false;
         if (a.capturing)
         {
-            // Tell the host to suppress its menu-toggle hotkey while we capture, so
-            // pressing e.g. Insert binds the key instead of closing the menu.
+            // Prevent host shortcuts from consuming the key being captured.
             if (Context* c = GetContext())
                 c->wantCaptureHotkey = true;
 

@@ -88,8 +88,6 @@ namespace IVUI
 
         ImDrawList* dl = ImGui::GetForegroundDrawList();
 
-        // iOS "Dynamic Island": dark capsules that pop in from the top center and
-        // expand, stacked downward (newest on top).
         if (th.DynamicIslandToast)
         {
             const float cx = vp->Pos.x + vp->Size.x * 0.5f;
@@ -138,7 +136,6 @@ namespace IVUI
                 AddTextScaled(dl, ImVec2(iconC.x - gsz.x * 0.5f, iconC.y - gsz.y * 0.5f),
                               WithAlphaMul(IM_COL32(12, 12, 15, 255), alpha), glyph, th.FontSizeSmall, GetTitleFont());
 
-                // Text fades in as the capsule finishes expanding.
                 const float txtA = alpha * ImClamp((e - 0.5f) * 2.0f, 0.0f, 1.0f);
                 const float textX = iconC.x + iconR + gap;
                 float ty = cmin.y + (h - textH) * 0.5f;
@@ -156,19 +153,16 @@ namespace IVUI
             return;
         }
 
-        // Newest nearest the corner: walk from the end (newest) upward.
         for (int i = (int)g_toasts.size() - 1; i >= 0; --i)
         {
             ToastItem& it = g_toasts[i];
 
-            // Card height: title line + optional body line.
             const ImVec2 titleSz = CalcTextScaled(it.title.c_str(), th.FontSizeLabel, GetTitleFont());
             const bool hasBody = !it.body.empty();
             const ImVec2 bodySz = hasBody ? CalcTextScaled(it.body.c_str(), th.FontSizeSmall) : ImVec2(0, 0);
             const float textH = titleSz.y + (hasBody ? (4.0f * S + bodySz.y) : 0.0f);
             const float cardH = ImMax(iconR * 2.0f, textH) + padY * 2.0f;
 
-            // Presence easing (slide-in from the right + fade). Countdown pauses on hover.
             const ImVec2 cardMinFull(rightX - cardW, y - cardH);
             const ImVec2 cardMaxFull(rightX, y);
             const bool hovered = ImGui::IsMouseHoveringRect(cardMinFull, cardMaxFull);
@@ -192,17 +186,13 @@ namespace IVUI
             const ImU32 tc = TypeColor(it.type);
             const float round = th.RoundingControl * S;
 
-            // Soft drop shadow.
             dl->AddRectFilled(ImVec2(cmin.x, cmin.y + 4.0f * S), ImVec2(cmax.x, cmax.y + 4.0f * S),
                               WithAlphaMul(IM_COL32(0, 0, 0, 130), alpha), round);
-            // Card body + border.
             dl->AddRectFilled(cmin, cmax, WithAlphaMul(th.Surface1, 0.98f * alpha), round);
             dl->AddRect(cmin, cmax, WithAlphaMul(th.Border, alpha), round, 0, th.BorderThickness * S);
-            // Left type accent bar.
             dl->AddRectFilled(cmin, ImVec2(cmin.x + 4.0f * S, cmax.y), WithAlphaMul(tc, alpha),
                               round, ImDrawFlags_RoundCornersLeft);
 
-            // Type icon: filled disc + centered glyph.
             const ImVec2 iconC(cmin.x + padX + iconR, (cmin.y + cmax.y) * 0.5f);
             dl->AddCircleFilled(iconC, iconR, WithAlphaMul(tc, alpha));
             const char* glyph = TypeGlyph(it.type);
@@ -210,7 +200,6 @@ namespace IVUI
             AddTextScaled(dl, ImVec2(iconC.x - gsz.x * 0.5f, iconC.y - gsz.y * 0.5f),
                           WithAlphaMul(IM_COL32(20, 22, 26, 255), alpha), glyph, th.FontSizeSmall, GetTitleFont());
 
-            // Text block.
             const float textX = cmin.x + padX + iconR * 2.0f + gap;
             float ty = cmin.y + padY;
             AddTextScaled(dl, ImVec2(textX, ty), WithAlphaMul(th.Text, alpha), it.title.c_str(), th.FontSizeLabel, GetTitleFont());
@@ -220,7 +209,6 @@ namespace IVUI
                 AddTextScaled(dl, ImVec2(textX, ty), WithAlphaMul(th.TextMuted, alpha), it.body.c_str(), th.FontSizeSmall);
             }
 
-            // Bottom countdown bar (shrinks as time runs out).
             const float remain = ImClamp(1.0f - it.age / it.duration, 0.0f, 1.0f);
             const float barY = cmax.y - 2.5f * S;
             dl->AddLine(ImVec2(cmin.x + round, barY), ImVec2(cmin.x + round + (cardW - round * 2.0f) * remain, barY),
@@ -229,7 +217,7 @@ namespace IVUI
             y = cmin.y - spacing;
         }
 
-        // Reap fully-hidden toasts (collect-then-erase; safe for the next frame).
+        // Erase after traversal so references remain valid for the current frame.
         for (int i = (int)g_toasts.size() - 1; i >= 0; --i)
             if (!g_toasts[i].alive && g_toasts[i].vis < 0.02f)
                 g_toasts.erase(g_toasts.begin() + i);

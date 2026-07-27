@@ -7,8 +7,12 @@
 
 namespace IVUI
 {
-    // Renders `body` inside a nested auto-resize child clipped to `outerSize`.
-    // Returns the measured (unclipped) content height so the caller can animate
-    // `outerSize.y` toward it next frame.
+    /** @brief Renders auto-sized content clipped to an outer animated child.
+     *  @param id Unique child identifier.
+     *  @param outerSize Visible child size; its height is normally animated by the caller.
+     *  @param innerWidth Width available to @p body during measurement.
+     *  @param body Content callback.
+     *  @return Unclipped measured content height.
+     */
     float AnimatedChild(const char* id, ImVec2 outerSize, float innerWidth, const std::function<void()>& body);
 }

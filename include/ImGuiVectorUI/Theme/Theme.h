@@ -36,6 +36,7 @@ namespace IVUI
 
         ImU32 Glow;          // accent @ low alpha for bloom
         ImU32 HoverTint;     // additive tint drawn on hovered rows/controls
+        ImU32 GlassTint;     // independent tint mixed into the blurred panel backdrop
 
         // Shape scale.
         float RoundingPanel;
@@ -69,10 +70,16 @@ namespace IVUI
         float ControlCornerFrac; // pill controls' corner radius = height * frac (0=boxy .. 0.5=pill)
         float KnobRoundFrac;     // knob corner radius fraction (1=circle .. 0=square)
         float SurfaceAlpha;      // control fill opacity (1=opaque, <1=translucent)
-        float PanelBodyAlpha;    // panel body fill opacity over the GPU glass
+        float PanelBodyAlpha;    // ImGui-drawn panel/header overlay opacity over GPU glass
+        float GlassTintStrength; // 0 = pure blur, 1 = fully tinted glass body
+        float GlassOpacity;      // final glass layer opacity over the blurred backdrop
         float Sheen;             // top specular highlight strength (0..1)
-        float PanelGlow;         // panel GPU glass glow strength
+        float PanelGlow;         // final framebuffer bloom strength
         float PanelGlowSpread;   // panel glow px falloff (unscaled)
+        float BloomThreshold;    // minimum average RGB brightness included in bloom
+        float BloomSaturation;   // minimum RGB chroma included in bloom
+        float BloomSigma;        // Gaussian sigma in pixels for the bloom blur
+        float BackdropBlurSigma; // Gaussian sigma in pixels for panel backdrops (0 = disabled)
         float PanelShadow;       // panel drop-shadow strength
         float PanelShadowSpread; // panel shadow px falloff (unscaled)
         float BackdropAlpha;     // multiplier for the host-wide scrim behind the menu
@@ -101,40 +108,56 @@ namespace IVUI
     // Active-feature HUD layouts. Geometry and effects remain theme parameters.
     enum HudLayout { HUD_Chips = 0, HUD_SideRail, HUD_RainbowFrame, HUD_GlassStack };
 
-    // Built-in presets.
+    /** @name Built-in color presets */
+    /** @{ */
     Theme ThemeInjectionPeach();   // default — the UI1001 salmon/charcoal look
     Theme ThemeInjectionCyan();    // the current-repo cyan look
     Theme ThemeInjectionViolet();
     Theme ThemeInjectionEmerald();
+    /** @} */
 
     enum class Preset { Peach, Cyan, Violet, Emerald, COUNT };
+    /** @brief Creates the color preset selected by @p p. */
     Theme       GetPreset(Preset p);
+    /** @return The display name for @p p. */
     const char* PresetName(Preset p);
 
     // Global visual styles — a whole look (colors + shape + glow + translucency +
     // motion feel), not just a palette. Built on top of the color presets.
     enum class Style { MaterialYou, Vape, Neverlose, ImGuiClassic, iOSGlass, COUNT };
+    /** @brief Creates the complete visual style selected by @p s. */
     Theme       GetStyle(Style s);
+    /** @return The display name for @p s. */
     const char* StyleName(Style s);
-    bool        StyleIsDynamicIsland(Style s); // iOS-style top-center toast?
+    /** @return True when @p s uses the top-center Dynamic Island toast layout. */
+    bool        StyleIsDynamicIsland(Style s);
 
-    // Recompute all accent-derived tokens (hover/active/muted/glow/knob/track) from
-    // a single accent color — lets a picker or hue slider recolor the whole UI.
+    /** @brief Recomputes accent-derived theme tokens.
+     *  @param t Theme to update.
+     *  @param accent Base packed RGBA accent color.
+     */
     void SetAccent(Theme& t, ImU32 accent);
 
-    // Copy of `t` with every color token's alpha scaled by `a` (fade a region by
-    // pushing this as the theme around it).
+    /** @brief Returns a faded copy of @p t.
+     *  Color alpha values and intensity-based visual effects are scaled by @p a.
+     */
     Theme ScaleThemeAlpha(const Theme& t, float a);
 
-    // Theme stack (backed by the active context).
+    /** @brief Pushes @p theme onto the active context's theme stack. */
     void         PushTheme(const Theme& theme);
+    /** @brief Removes the top theme from the active context's stack. */
     void         PopTheme();
-    const Theme& GetTheme();     // read-only top of stack
-    Theme&       GetMutableTheme(); // top of stack, editable (e.g. live accent swap)
+    /** @return The read-only theme at the top of the active stack. */
+    const Theme& GetTheme();
+    /** @return The mutable theme at the top of the active stack. */
+    Theme&       GetMutableTheme();
 
-    // Morph layer: set the *target* theme; each frame the live theme (what widgets
-    // read via GetTheme) eases toward it, so switching style/color animates instead
-    // of snapping. Call SetTargetTheme once per frame with the desired look.
+    /** @brief Sets the desired theme for frame-by-frame morphing.
+     *  @param t Target theme. Call once per frame while the desired look is active.
+     */
     void SetTargetTheme(const Theme& t);
-    void AdvanceThemeMorph(float dt); // eases live->target, writes live to stack base (called by NewFrame)
+    /** @brief Advances the live theme toward its target.
+     *  @param dt Elapsed time in seconds.
+     */
+    void AdvanceThemeMorph(float dt);
 }

@@ -1,15 +1,13 @@
-// ImGuiVectorUI — library context and lifecycle.
-// Owns the animation registry, the theme stack, per-frame timing, and font
-// handles. Replaces MYGui's singleton + all its file-scope global maps.
+/** @file Context.h
+ *  @brief Context lifetime and host integration for ImGuiVectorUI.
+ */
 #pragma once
 
 #include "imgui.h"
 #include "ImGuiVectorUI/Core/AnimState.h"
 #include "ImGuiVectorUI/Theme/Theme.h"
-#include "ImGuiVectorUI/Drawing/Effects.h"
 
 #include <vector>
-
 namespace IVUI
 {
     struct Context
@@ -19,7 +17,6 @@ namespace IVUI
         Theme              themeTarget;               // morph target (set each frame)
         Theme              themeLive;                 // eased toward target; published to stack base
         bool               themeInit = false;         // themeLive seeded yet?
-        std::vector<GlassRect> glassQueue;           // GPU glass backdrops for this frame
         float              deltaTime = 1.0f / 60.0f; // clamped real frame time
         unsigned           frameCount = 0;
         ImFont*            fontRegular = nullptr;
@@ -28,21 +25,30 @@ namespace IVUI
         float              contentScale = 1.0f;       // DPI scale from the host
     };
 
+    /** @brief Creates the library context after the ImGui backend is initialized. */
     void     CreateContext();
+    /** @brief Releases all library-owned state before destroying the ImGui context. */
     void     DestroyContext();
-    void     NewFrame();            // call once per frame, right after ImGui::NewFrame()
+    /** @brief Advances library state once per frame, immediately after ImGui::NewFrame(). */
+    void     NewFrame();
+    /** @brief Returns the active IVUI context.
+     *  @return The active context, or null before CreateContext() and after DestroyContext().
+     */
     Context* GetContext();
 
-    // Host hook: assign the fonts the library should draw with. Pass nullptr to
-    // fall back to ImGui's default font.
+    /** @brief Sets library fonts; null pointers use ImGui's default font.
+     *  @param regular Font used for regular UI text.
+     *  @param title Font used for title text.
+     */
     void     SetFonts(ImFont* regular, ImFont* title);
 
-    // True while a HotkeyInput is waiting to capture a key. The host should use
-    // this to suppress its own menu-toggle hotkey so it isn't consumed instead.
+    /** @brief Reports whether a HotkeyInput owns keyboard capture this frame. */
     bool     WantCaptureHotkey();
 
-    // Host hook: report the window's DPI scale so the UI renders at native
-    // resolution (crisp) while keeping its on-screen size.
+    /** @brief Sets the host DPI scale used to preserve the UI's apparent size.
+     *  @param scale Positive scale relative to the design resolution.
+     */
     void     SetContentScale(float scale);
+    /** @return The DPI scale last supplied by SetContentScale(). */
     float    GetContentScale();
 }

@@ -1,6 +1,4 @@
-// Injection-style demo menu on the ImGuiVectorUI library, with a Vape-style
-// composable multi-panel workspace: create floating panels at runtime and fill
-// them with any main-menu feature (drag from the menu, or panel "+" add-mode).
+/** @file DemoMenu.cpp @brief Interactive ImGuiVectorUI demonstration menu. */
 #include "DemoMenu.h"
 
 #include "imgui.h"
@@ -16,7 +14,6 @@
 
 namespace Demo
 {
-    // ---- Demo feature state -------------------------------------------------
     static int   g_tab = 0;
     static float g_menuVis = 0.0f;
 
@@ -37,22 +34,24 @@ namespace Demo
 
     static int   g_quality = 1;
     static bool  g_nightMode = false, g_statusHudEnabled = true;
-    static float g_bloom = 0.35f;
+    static float g_bloom = 1.0f;
+    static float g_bloomThreshold = 0.08f;
+    static float g_bloomSaturation = 0.04f;
+    static float g_bloomSigma = 3.0f;
+    static float g_backdropBlurSigma = 16.0f;
 
-    // Background scrim (desktop dim behind the menu on the transparent host).
     static float g_scrimAlpha = 0.32f;
 
-    // Config / theme
     static int    g_menuKey = ImGuiKey_Insert;
     static int    g_style = 0;                    // IVUI::Style (Material You / VAPE / Neverlose / ImGui / iOS)
     static float  g_scale = 1.0f, g_roundMul = 1.0f;
     static float  g_glowMul = 1.0f, g_translucencyMul = 1.0f; // free-adjust multipliers
     static ImVec4 g_accent = ImVec4(1.0f, 180.0f / 255.0f, 169.0f / 255.0f, 1.0f);
+    static ImVec4 g_glassTint = ImVec4(0.11f, 0.12f, 0.16f, 1.0f);
+    static float  g_glassTintStrength = 0.16f, g_glassOpacity = 0.82f;
     static bool   g_cfgKeybinds = true, g_streamproof = false;
     static IVUI::Keybind g_kbAim{ ImGuiKey_C }, g_kbEsp{ ImGuiKey_E }, g_kbPanic{ ImGuiKey_Delete };
 
-    // ---- Feature registry ---------------------------------------------------
-    // draw(label) lets a feature be shown under a custom name (per-panel rename).
     struct Feature { std::string id, category, group, name; std::function<void(const char*)> draw; };
     struct Category { std::string id, name; IVUI::IconType icon; };
 
@@ -126,7 +125,6 @@ namespace Demo
         add("aimbot", "", "fov", "FOV", [](const char* l) { IVUI::SliderFloat(l, &g_fov, 1.0f, 180.0f, "%.0f"); });
         add("aimbot", "", "smoothing", "Smoothing", [](const char* l) { IVUI::SliderFloat(l, &g_smooth, 1.0f, 20.0f, "%.1f"); });
         add("aimbot", "", "mode", "Mode", [](const char* l) { IVUI::SliderLabeled(l, &g_aimMode, { "Off", "Legit", "Rage" }); });
-        // "Advanced" is a group (container), not a feature — its children are added individually.
         add("aimbot", "Advanced", "vischeck", "Visibility Check", [](const char* l) { IVUI::Toggle(l, &g_aimVisCheck); });
         add("aimbot", "Advanced", "bone", "Target Bone", [](const char* l) { IVUI::Combo(l, &g_aimBone, { "Head", "Neck", "Chest", "Pelvis" }); });
 
@@ -148,15 +146,15 @@ namespace Demo
         add("player", "", "speedmult", "Speed Multiplier", [](const char* l) { IVUI::SliderFloat(l, &g_speedMult, 1.0f, 5.0f, "%.2fx"); });
 
         add("visual", "", "quality", "Quality", [](const char* l) { IVUI::SliderLabeled(l, &g_quality, { "Low", "Medium", "High", "Ultra" }); });
-        add("visual", "", "bloom", "Bloom", [](const char* l) { IVUI::SliderFloat(l, &g_bloom, 0.0f, 1.0f, "%.2f"); });
+        add("visual", "", "bloom", "Bloom Strength", [](const char* l) { IVUI::SliderFloat(l, &g_bloom, 0.0f, 2.0f, "%.2f"); });
+        add("visual", "Bloom", "bloom_threshold", "Bloom Threshold", [](const char* l) { IVUI::SliderFloat(l, &g_bloomThreshold, 0.0f, 1.0f, "%.2f"); });
+        add("visual", "Bloom", "bloom_saturation", "Bloom Saturation", [](const char* l) { IVUI::SliderFloat(l, &g_bloomSaturation, 0.0f, 0.5f, "%.2f"); });
+        add("visual", "Bloom", "bloom_sigma", "Bloom Sigma", [](const char* l) { IVUI::SliderFloat(l, &g_bloomSigma, 0.5f, 3.0f, "%.2f"); });
         add("visual", "", "night", "Night Mode", [](const char* l) { IVUI::Toggle(l, &g_nightMode); });
         add("visual", "", "feature_hud", "Feature HUD", [](const char* l) { IVUI::Toggle(l, &g_statusHudEnabled); });
 
-        // Glow / translucency are driven by the active style + Config's Glow /
-        // Translucency multipliers; only the desktop backdrop dim stays here.
         add("visual", "Glass Effect", "glass_scrim", "Backdrop Dim", [](const char* l) { IVUI::SliderFloat(l, &g_scrimAlpha, 0.0f, 0.85f, "%.2f"); });
 
-        // Toast notifications demo (bottom-right).
         add("visual", "Notifications", "notify", "Fire Toast", [](const char*) {
             if (IVUI::Button("Info", ImVec2(-1.0f, 0.0f), false))
                 IVUI::Toast(IVUI::ToastType::Info, "提示 Info", "这是一条信息通知");
@@ -169,7 +167,6 @@ namespace Demo
         });
     }
 
-    // ---- Workspace (dynamic custom panels) ----------------------------------
     struct PanelItem { std::string featureId; std::string customName; }; // customName overrides the label
     struct UserPanel { std::string id, name; ImVec2 pos; bool open = true; std::vector<PanelItem> items; };
     static std::vector<UserPanel> g_panels;
@@ -221,29 +218,6 @@ namespace Demo
         g_panels.push_back(std::move(p));
     }
 
-    // ---- Persistence interface (session-only; reserved, not written to disk) --
-    struct WorkspaceLayout { std::vector<UserPanel> panels; };
-    static std::string SerializeLayout(const WorkspaceLayout& w)
-    {
-        std::string out;
-        for (const auto& p : w.panels)
-        {
-            char head[128];
-            snprintf(head, sizeof(head), "%s|%s|%.0f,%.0f|", p.id.c_str(), p.name.c_str(), p.pos.x, p.pos.y);
-            out += head;
-            for (size_t i = 0; i < p.items.size(); ++i)
-            {
-                out += p.items[i].featureId;
-                if (!p.items[i].customName.empty()) { out += '='; out += p.items[i].customName; } // custom label
-                if (i + 1 < p.items.size()) out += ',';
-            }
-            out += '\n';
-        }
-        return out; // TODO: write this to disk for cross-session persistence.
-    }
-    static bool DeserializeLayout(const std::string& /*s*/, WorkspaceLayout& /*w*/) { return false; /* TODO */ }
-
-    // ---- Small vector icons -------------------------------------------------
     static void DrawGrip(ImDrawList* dl, ImVec2 c, ImU32 col, float S)
     {
         for (int i = 0; i < 3; ++i)
@@ -260,7 +234,6 @@ namespace Demo
         dl->AddLine(ImVec2(c.x - g, c.y + g), ImVec2(c.x + g, c.y - g), col, t);
     }
 
-    // ---- Helpers ------------------------------------------------------------
     static void Heading(const char* text)
     {
         const IVUI::Theme& th = IVUI::GetTheme();
@@ -275,22 +248,37 @@ namespace Demo
     {
         IVUI::Theme base = IVUI::GetStyle((IVUI::Style)g_style);
         static int prevStyle = -1;
-        if (g_style != prevStyle) { g_accent = ImGui::ColorConvertU32ToFloat4(base.Accent); prevStyle = g_style; }
+        if (g_style != prevStyle)
+        {
+            g_accent = ImGui::ColorConvertU32ToFloat4(base.Accent);
+            g_glassTint = ImGui::ColorConvertU32ToFloat4(base.GlassTint);
+            g_glassTintStrength = base.GlassTintStrength;
+            g_glassOpacity = base.GlassOpacity;
+            g_bloomThreshold = base.BloomThreshold;
+            g_bloomSaturation = base.BloomSaturation;
+            g_bloomSigma = base.BloomSigma;
+            g_backdropBlurSigma = base.BackdropBlurSigma;
+            prevStyle = g_style;
+        }
         IVUI::SetAccent(base, ImGui::ColorConvertFloat4ToU32(g_accent));
         base.Scale = g_scale * IVUI::GetContentScale();
         base.RoundingPanel *= g_roundMul;
         base.RoundingControl *= g_roundMul;
         base.RoundingPill *= g_roundMul;
-        // Free-adjust multipliers (Config sliders) on top of the style's values.
         base.WidgetGlow *= g_glowMul;
-        base.PanelGlow *= g_glowMul;
+        base.PanelGlow *= g_glowMul * g_bloom;
+        base.BloomThreshold = g_bloomThreshold;
+        base.BloomSaturation = g_bloomSaturation;
+        base.BloomSigma = g_bloomSigma;
+        base.BackdropBlurSigma = g_backdropBlurSigma;
         base.SurfaceAlpha = ImClamp(base.SurfaceAlpha * g_translucencyMul, 0.0f, 1.0f);
         base.PanelBodyAlpha = ImClamp(base.PanelBodyAlpha * g_translucencyMul, 0.0f, 1.0f);
-        IVUI::SetTargetTheme(base); // morph layer eases the live theme toward this
+        base.GlassTint = ImGui::ColorConvertFloat4ToU32(g_glassTint);
+        base.GlassTintStrength = ImClamp(g_glassTintStrength, 0.0f, 1.0f);
+        base.GlassOpacity = ImClamp(g_glassOpacity * g_translucencyMul, 0.0f, 1.0f);
+        IVUI::SetTargetTheme(base);
     }
 
-    // A main-menu feature row. Clean when idle; in edit mode shows a left drag
-    // handle (drag into a panel) and the row becomes click-to-add.
     static void MainFeatureRow(const Feature& f)
     {
         const IVUI::Theme& th = IVUI::GetTheme();
@@ -334,9 +322,9 @@ namespace Demo
         ImGui::PopID();
     }
 
-    // A panel feature row. Clean when idle; in edit mode the widget is frozen
-    // (interaction ignored), with a left remove "x", a right reorder handle, and
-    // double-click to rename the item. Returns true if remove requested.
+    /** @brief Draws one feature row inside an editable panel.
+     *  @return True when the caller should remove the feature.
+     */
     static bool PanelFeatureRow(const std::string& panelId, PanelItem& item, int index, bool editMode)
     {
         const Feature* f = FindFeature(item.featureId);
@@ -392,8 +380,7 @@ namespace Demo
         else
         {
             ImGui::Indent(leftG);
-            // NoInputs freezes the widget (edit mode ignores its interaction) and lets
-            // the parent-level blocker/double-click detector below receive the mouse.
+            // NoInputs transfers edit-mode input to the parent-level overlay.
             ImGui::BeginChild("fw", ImVec2(childW, 0.0f), ImGuiChildFlags_AutoResizeY,
                               ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
             f->draw(displayName.c_str());
@@ -402,7 +389,6 @@ namespace Demo
             rowH = ImGui::GetCursorScreenPos().y - cursor.y - ImGui::GetStyle().ItemSpacing.y;
             if (rowH < th.ControlHeight * S * 0.5f) rowH = th.ControlHeight * S * 0.5f;
 
-            // Blocker over the widget: ignore its interaction; double-click renames.
             ImGui::SetCursorScreenPos(ImVec2(cursor.x + leftG, cursor.y));
             ImGui::InvisibleButton("block", ImVec2(childW, rowH));
             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
@@ -446,11 +432,9 @@ namespace Demo
             if (IVUI::Button("+ Add whole category"))
                 AddCategoryToPanel(g_editTarget, cat.id);
         }
-        // Ungrouped features first.
         for (auto& f : g_features)
             if (f.category == cat.id && f.group.empty())
                 MainFeatureRow(f);
-        // Then each group as a collapsible Section containing its child features.
         std::vector<std::string> groups;
         for (auto& f : g_features)
             if (f.category == cat.id && !f.group.empty() &&
@@ -476,10 +460,14 @@ namespace Demo
                     { "Material You", "VAPE", "Neverlose", "ImGui Classic", "iOS Liquid Glass" });
         IVUI::Tooltip("切换整套视觉风格 · 切换会平滑形变");
         IVUI::ColorPicker("Accent Color", &g_accent);
+        IVUI::ColorPicker("Glass Tint", &g_glassTint);
+        IVUI::SliderFloat("Glass Tint Mix", &g_glassTintStrength, 0.0f, 1.0f, "%.2f");
+        IVUI::SliderFloat("Glass Opacity", &g_glassOpacity, 0.05f, 1.0f, "%.2f");
         IVUI::SliderFloat("UI Scale", &g_scale, 0.8f, 1.4f, "%.2fx");
         IVUI::SliderFloat("Roundness", &g_roundMul, 0.0f, 2.0f, "%.2f");
         IVUI::SliderFloat("Glow", &g_glowMul, 0.0f, 2.5f, "%.2f");
         IVUI::SliderFloat("Translucency", &g_translucencyMul, 0.3f, 1.2f, "%.2f");
+        IVUI::SliderFloat("Backdrop Blur", &g_backdropBlurSigma, 0.0f, 16.0f, "%.2f px");
         IVUI::Section("Keybinds (primary + secondary + mode)", &g_cfgKeybinds, [] {
             IVUI::KeybindRow("Aimbot", &g_kbAim);
             IVUI::KeybindRow("ESP", &g_kbEsp);
@@ -526,7 +514,7 @@ namespace Demo
             hdr.editActive = editMode;
             hdr.editBuf = g_renameBuf;
             hdr.editBufSize = (int)sizeof(g_renameBuf);
-            // "###id" keeps a stable window id (rename-safe) with a clean display name.
+            // The ID suffix keeps panel state stable when its display name changes.
             const std::string label = p->name + "###" + p->id;
             std::vector<std::string> toRemove;
             std::string dropFeat; int dropIdx = -1;   // drag-add: feature id + insertion index
@@ -569,11 +557,8 @@ namespace Demo
                     if (p->items.empty())
                         IVUI::AddTextScaled(dl, ImGui::GetCursorScreenPos(), th.TextDisabled, "从主菜单拖或点功能加入", th.FontSizeSmall);
 
-                    // No trailing drop zone: appending to the end is reachable by
-                    // hovering the lower half of the last row.
                     const float bodyBot = ImGui::GetCursorScreenPos().y;
 
-                    // Drop zone = the whole panel width; only reacts when hovered.
                     const ImRect body(ImVec2(x0 - pad + 3.0f * S, bodyTop),
                                       ImVec2(x1 + pad - 3.0f * S, ImMax(bodyBot, bodyTop + 12.0f * S)));
                     if (dragActive && ImGui::IsMouseHoveringRect(body.Min, body.Max))
@@ -650,7 +635,6 @@ namespace Demo
         RegisterFeatures();
         ApplyTheme();
 
-        // TEMP verification: number keys 1-5 switch style + fire toasts.
         for (int i = 0; i < 5; ++i)
             if (ImGui::IsKeyPressed((ImGuiKey)(ImGuiKey_1 + i)))
             {
@@ -671,7 +655,6 @@ namespace Demo
             g_seeded = true;
         }
 
-        // Active-feature HUD presentation is defined solely by the active theme.
         if (g_statusHudEnabled)
         {
             std::vector<const char*> chips;
@@ -688,7 +671,6 @@ namespace Demo
             }
         }
 
-        // Toasts run every frame (visible even while the menu is hidden).
         IVUI::RenderToasts();
 
         const float visTarget = *open ? 1.0f : 0.0f;
@@ -700,11 +682,10 @@ namespace Demo
         if (!g_editTarget.empty() && ImGui::IsKeyPressed(ImGuiKey_Escape))
             g_editTarget.clear();
 
-        // Backdrop dim (tunable): kept light so the desktop / glass / glow stay
-        // visible through the transparent host.
-        ImGui::GetBackgroundDrawList()->AddRectFilled(
-            vp->Pos, ImVec2(vp->Pos.x + vp->Size.x, vp->Pos.y + vp->Size.y),
-            IVUI::WithAlphaMul(th0.Overlay, g_scrimAlpha * th0.BackdropAlpha * g_menuVis));
+        if (g_scrimAlpha > 0.001f)
+            ImGui::GetBackgroundDrawList()->AddRectFilled(
+                vp->Pos, ImVec2(vp->Pos.x + vp->Size.x, vp->Pos.y + vp->Size.y),
+                IVUI::WithAlphaMul(th0.Overlay, g_scrimAlpha * th0.BackdropAlpha * g_menuVis));
 
         IVUI::PushTheme(IVUI::ScaleThemeAlpha(IVUI::GetTheme(), g_menuVis));
 
@@ -714,15 +695,13 @@ namespace Demo
         const float titleH = th.ControlHeight * S;
         const float sidebarW = 190.0f * S;
 
-        // Keep the initial layout while allowing ImGui to retain user-driven resizing.
-        // `Always` here overwrote the result of every border drag on the next frame.
+        // FirstUseEver preserves user-driven resizing after the initial layout.
         const ImVec2 menuSize = ImVec2(940.0f * S, 580.0f * S);
         ImGui::SetNextWindowSize(menuSize, ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + (vp->Size.x - menuSize.x) * 0.5f,
                                        vp->Pos.y + (vp->Size.y - menuSize.y) * 0.5f), ImGuiCond_Once);
 
-        // The menu has no native title bar, so all four edges need to claim resize
-        // input before the window's generic drag-to-move handling sees it.
+        // A title-less window needs edge resizing enabled explicitly.
         ImGui::GetIO().ConfigWindowsResizeFromEdges = true;
 
         ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar |
@@ -734,25 +713,24 @@ namespace Demo
             const ImVec2 wpos = ImGui::GetWindowPos();
             const ImVec2 wsize = ImGui::GetWindowSize();
 
-            // Main-menu backdrop: GPU glass (translucent + glow + shadow), all params
-            // from the eased theme so the whole menu morphs per style.
+            // Submit the backdrop before ImGui so it remains beneath menu content.
             const float mround = th.RoundingPanel * S;
             {
                 IVUI::GlassRect g;
                 g.min = wpos; g.max = wpos + wsize;
                 g.rounding = mround;
-                g.opacity = 0.5f * th.PanelBodyAlpha * g_menuVis;
-                g.tint = th.Surface0; g.accent = th.Accent; g.glow = th.Glow;
+                g.opacity = th.GlassOpacity * g_menuVis;
+                g.tint = th.GlassTint; g.tintStrength = th.GlassTintStrength;
+                g.accent = th.Accent; g.glow = th.Glow;
                 g.glowStrength = th.PanelGlow * g_menuVis; g.glowSpread = th.PanelGlowSpread * S;
                 g.shadowStrength = th.PanelShadow * g_menuVis; g.shadowSpread = th.PanelShadowSpread * S;
                 IVUI::SubmitGlass(g);
             }
-            dl->AddRectFilled(wpos, wpos + wsize, IVUI::WithAlphaMul(th.Surface0, th.PanelBodyAlpha * g_menuVis), mround);
             if (th.BorderThickness > 0.01f)
                 dl->AddRect(wpos, wpos + wsize, th.Border, mround, 0, th.BorderThickness * S);
 
             const ImVec2 titleEnd = ImVec2(wpos.x + wsize.x, wpos.y + titleH);
-            dl->AddRectFilled(wpos, titleEnd, IVUI::WithAlphaMul(th.Surface1, th.PanelBodyAlpha * g_menuVis), mround, ImDrawFlags_RoundCornersTop);
+            dl->AddRectFilled(wpos, titleEnd, IVUI::WithAlphaMul(th.Surface1, th.PanelBodyAlpha * 0.10f * g_menuVis), mround, ImDrawFlags_RoundCornersTop);
             IVUI::Sheen(dl, wpos, titleEnd, mround, th.Sheen);
             dl->AddLine(ImVec2(wpos.x + pad, titleEnd.y), ImVec2(titleEnd.x - pad, titleEnd.y), th.Accent, ImMax(2.0f * S, 1.0f));
             const char* title = "VECTOR MENU";
@@ -788,8 +766,7 @@ namespace Demo
                 ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f * S, 12.0f * S));
                 if (!g_editTarget.empty())
                     RenderAddBanner();
-                // Fade the old page out before drawing the newly selected one. This
-                // avoids direction-dependent motion when tabs are changed repeatedly.
+                // Complete the fade-out before switching content to avoid mixed pages.
                 static int shownTab = -1;
                 static float tabFade = 1.0f;
                 if (shownTab < 0)

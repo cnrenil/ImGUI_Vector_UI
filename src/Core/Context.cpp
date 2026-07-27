@@ -59,14 +59,13 @@ namespace IVUI
     {
         if (g_ctx == nullptr)
             return;
-        // Real frame time, clamped so a hitch/stall doesn't fling animations.
+        // Clamp stalls to keep animation integration stable.
         g_ctx->deltaTime = ImClamp(ImGui::GetIO().DeltaTime, 0.0f, 0.1f);
         g_ctx->frameCount++;
         g_ctx->wantCaptureHotkey = false; // widgets set this again during the frame
-        g_ctx->glassQueue.clear();        // panels re-submit their glass each frame
         AdvanceThemeMorph(g_ctx->deltaTime); // ease live theme -> target, publish to stack base
 
-        // Periodically free state for widgets that haven't been drawn recently.
+        // Reclaim state only after traversal has completed for several frames.
         if ((g_ctx->frameCount % 240) == 0)
             g_ctx->anim.GarbageCollect(g_ctx->frameCount, 600);
     }

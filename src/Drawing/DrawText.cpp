@@ -32,7 +32,7 @@ namespace IVUI
 
     const char* VisibleEnd(const char* label)
     {
-        // Hide everything from the first "##"/"###" (ImGui id marker) or '|'.
+        // Respect both ImGui ID suffixes and the library's visible-label delimiter.
         for (const char* p = label; *p; ++p)
         {
             if ((p[0] == '#' && p[1] == '#') || p[0] == '|')
@@ -54,7 +54,7 @@ namespace IVUI
         if (font == nullptr)
             font = GetRegularFont();
         const float size = pt * GetTheme().Scale;
-        // Snap to whole pixels so glyphs land on the pixel grid (crisper text).
+        // Pixel alignment prevents blurred glyph rasterization.
         pos.x = ImFloor(pos.x);
         pos.y = ImFloor(pos.y);
         draw->AddText(font, size, pos, col, label, VisibleEnd(label));

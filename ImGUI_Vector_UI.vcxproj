@@ -125,7 +125,6 @@
     <ClInclude Include="include\ImGuiVectorUI\Layout\StatusChips.h" />
     <ClInclude Include="include\ImGuiVectorUI\Drawing\Effects.h" />
     <ClInclude Include="include\ImGuiVectorUI\Widgets\Toast.h" />
-    <ClInclude Include="app\Dx12Host\GlassFX.h" />
     <ClInclude Include="third_party\imgui\imgui.h" />
     <ClInclude Include="third_party\imgui\imgui_internal.h" />
     <ClInclude Include="third_party\imgui\backends\imgui_impl_dx12.h" />
@@ -163,7 +162,6 @@
     <ClCompile Include="src\Layout\StatusChips.cpp" />
     <ClCompile Include="src\Drawing\Effects.cpp" />
     <ClCompile Include="src\Widgets\Toast.cpp" />
-    <ClCompile Include="app\Dx12Host\GlassFX.cpp" />
     <ClCompile Include="third_party\imgui\imgui.cpp" />
     <ClCompile Include="third_party\imgui\imgui_draw.cpp" />
     <ClCompile Include="third_party\imgui\imgui_tables.cpp" />

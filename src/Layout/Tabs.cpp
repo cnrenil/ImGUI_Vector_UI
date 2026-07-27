@@ -32,7 +32,6 @@ namespace IVUI
         const ImVec2 mx = ImGui::GetItemRectMax();
 
         const float rnd = th.RoundingControl * S;
-        WidgetGlow(draw, mn, mx, th.Accent, rnd, a.t);
         const ImU32 idleBg = hovered ? th.HoverTint : IM_COL32(0, 0, 0, 0);
         const ImU32 activeBg = (th.Selection == SEL_FullFill) ? th.Surface2 : th.HoverTint;
         const ImU32 bg = EaseValueColor(ImColor(idleBg), ImColor(activeBg), a.t, EASE_OUT_QUAD);
@@ -55,7 +54,6 @@ namespace IVUI
         }
         else if (a.t > 0.001f)
         {
-            // Filled iOS selections read as a luminous capsule, not a color block.
             draw->AddRect(mn, mx, WithAlphaMul(th.Border, a.t), rnd, 0, ImMax(th.BorderThickness * S, 1.0f));
             Sheen(draw, mn, mx, rnd, th.Sheen * a.t);
         }

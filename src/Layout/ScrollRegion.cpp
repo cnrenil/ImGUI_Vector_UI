@@ -16,7 +16,6 @@ namespace IVUI
         const bool needed = scrollMax > 1.0f;
         const bool hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
 
-        // Fade in only when needed and the region is hovered/being dragged.
         const bool show = needed && (hovered || a.capturing);
         a.direction = show ? 1.0f : -1.0f;
         a.t = ImClamp(a.t + DeltaTime() * 8.0f * a.direction, 0.0f, 1.0f);
@@ -42,7 +41,6 @@ namespace IVUI
         float scrollY = ImGui::GetScrollY();
         float thumbY = y0 + (trackH - thumbH) * (scrollMax > 0.0f ? scrollY / scrollMax : 0.0f);
 
-        // Drag handling.
         const ImVec2 m = ImGui::GetMousePos();
         const bool overThumb = (m.x >= x0 - 4.0f * S && m.x <= x1 + 4.0f * S && m.y >= thumbY && m.y <= thumbY + thumbH);
         if (ImGui::IsMouseClicked(0) && overThumb && hovered)
@@ -56,7 +54,7 @@ namespace IVUI
             thumbY = y0 + (trackH - thumbH) * (scrollMax > 0.0f ? scrollY / scrollMax : 0.0f);
         }
 
-        // Draw (overlays content; fixed to the window, not the scrolled content).
+        // Draw in window coordinates so the bar does not scroll with content.
         ImDrawList* dl = ImGui::GetWindowDrawList();
         const float vis = EaseValue(0.0f, 1.0f, a.t, EASE_OUT_QUAD);
         const ImU32 trackCol = WithAlphaMul(th.Surface2, 0.6f * vis);

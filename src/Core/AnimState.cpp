@@ -34,7 +34,7 @@ namespace IVUI
 
     void AnimRegistry::GarbageCollect(unsigned frame, unsigned maxAge)
     {
-        // Collect stale ids first, then erase (don't mutate storage while enumerating targets).
+        // Do not mutate ImGuiStorage while enumerating it.
         ImVector<ImGuiID> dead;
         for (int i = 0; i < store.Data.Size; ++i)
         {

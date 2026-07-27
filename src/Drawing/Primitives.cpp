@@ -15,44 +15,9 @@ namespace IVUI
         draw->AddRect(min, max, col, rounding, flags, thickness);
     }
 
-    void Glow(ImDrawList* draw, ImVec2 min, ImVec2 max, ImU32 col, float rounding, float spread, int layers)
-    {
-        if (layers < 1)
-            layers = 1;
-        const int baseA = (int)((col >> IM_COL32_A_SHIFT) & 0xFF);
-        if (baseA <= 0)
-            return;
-        const ImU32 rgb = col & ~IM_COL32_A_MASK;
-        for (int i = layers; i >= 1; --i)
-        {
-            const float f = (float)i / (float)layers;         // 1 outermost .. 1/layers innermost
-            const float expand = spread * f;
-            const int   a = (int)(baseA * (1.0f - f) * 0.5f); // fade out toward the edge
-            if (a <= 0)
-                continue;
-            const ImU32 c = rgb | ((ImU32)a << IM_COL32_A_SHIFT);
-            draw->AddRectFilled(ImVec2(min.x - expand, min.y - expand),
-                                ImVec2(max.x + expand, max.y + expand),
-                                c, rounding + expand);
-        }
-    }
-
     void Track(ImDrawList* draw, ImVec2 min, ImVec2 max, ImU32 col, float rounding)
     {
         draw->AddRectFilled(min, max, col, rounding);
-    }
-
-    void WidgetGlow(ImDrawList* draw, ImVec2 min, ImVec2 max, ImU32 glowColor, float rounding, float active01)
-    {
-        const Theme& th = GetTheme();
-        const float strength = th.WidgetGlow * (active01 < 0.0f ? 0.0f : active01);
-        if (strength <= 0.001f)
-            return;
-        const float S = th.Scale;
-        // Scale the glow color's alpha by strength, then lay soft layers outward.
-        const int baseA = (int)(((glowColor >> IM_COL32_A_SHIFT) & 0xFF) * ImMin(strength, 1.5f));
-        const ImU32 col = (glowColor & ~IM_COL32_A_MASK) | ((ImU32)ImMin(baseA, 255) << IM_COL32_A_SHIFT);
-        Glow(draw, min, max, col, rounding, th.WidgetGlowSpread * S, 5);
     }
 
     float PillRounding(float height)

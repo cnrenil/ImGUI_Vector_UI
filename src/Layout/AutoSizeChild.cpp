@@ -8,13 +8,10 @@ namespace IVUI
     {
         ImGui::PushID(id);
 
-        // BeginChild treats a size component of 0 as "fill available region"; during
-        // the reveal animation the height passes through 0, which would make the child
-        // balloon to fill the parent (flicker + layout jumps). Never pass 0.
+        // ImGui interprets zero height as "fill available"; avoid it during reveal.
         outerSize.x = ImMax(outerSize.x, 1.0f);
         outerSize.y = ImMax(outerSize.y, 1.0f);
 
-        // Outer clips to the (animated) visible height; inner auto-resizes to content.
         ImGui::BeginChild("ivui_outer", outerSize, ImGuiChildFlags_None,
                           ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
         ImGui::BeginChild("ivui_inner", ImVec2(innerWidth, 0.0f), ImGuiChildFlags_AutoResizeY,

@@ -1,4 +1,4 @@
-// ImGuiVectorUI — id/state helpers used by widgets.
+/** @file Id.h @brief ImGui-ID-based widget state helpers. */
 #pragma once
 
 #include "imgui.h"
@@ -6,10 +6,10 @@
 
 namespace IVUI
 {
-    // ImGui-ID-keyed animation slot for the current widget (respects the ID stack).
+    /** @brief Returns an animation slot using ImGui's current ID stack. */
     AnimSlot& Slot(const char* label);
     AnimSlot& SlotID(ImGuiID id);
 
-    // Clamped real frame time from the context (framerate-independent animation).
+    /** @brief Returns the context's clamped frame time. */
     float DeltaTime();
 }

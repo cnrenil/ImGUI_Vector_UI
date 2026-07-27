@@ -13,8 +13,6 @@
 
 namespace IVUI
 {
-    // Shared: draw label + right-aligned value text, place the interaction button,
-    // and return the track origin. `trackSize` is filled with the track rect size.
     static ImVec2 SliderChrome(const char* label, const char* valueText, AnimSlot& /*a*/,
                                ImVec2& trackSize, bool& clicked, float& mousePercent, bool& dragging)
     {
@@ -49,7 +47,6 @@ namespace IVUI
         draw->AddRectFilled(bgPos, bgPos + ImVec2(w, size.y), th.Accent, rounding);
         const ImVec2 kc(bgPos.x + w, bgPos.y + size.y * 0.5f);
         const float kr = th.KnobRadius * th.Scale;
-        WidgetGlow(draw, ImVec2(kc.x - kr, kc.y - kr), ImVec2(kc.x + kr, kc.y + kr), th.Accent, kr, 1.0f);
         KnobShape(draw, kc, kr, th.Knob, th.KnobRoundFrac);
     }
 
@@ -95,7 +92,6 @@ namespace IVUI
 
         DrawTrack(bgPos, size, a.currentPercent);
 
-        // Segment dots.
         ImDrawList* draw = ImGui::GetWindowDrawList();
         if (segments > 1)
             for (int i = 1; i < segments; ++i)
@@ -124,7 +120,6 @@ namespace IVUI
         if (dragging || clicked)
             *v = ImClamp((int)(mp * (segments - 1) + 0.5f), 0, segments - 1);
 
-        // Spring the animated position toward the committed index.
         const float target = (float)(*v);
         if (fabsf(a.currentValue - target) > 0.01f)
         {

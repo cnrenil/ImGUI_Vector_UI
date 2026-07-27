@@ -13,13 +13,24 @@ namespace IVUI
         StatusListStyle style = StatusListStyle::ThemeDefault;
     };
 
-    // Draw an active-feature HUD. ThemeDefault resolves to the active theme's
-    // signature layout: VAPE side rail, Neverlose RGB frame, iOS glass stack, etc.
+    /** @brief Draws an active-feature HUD using the requested or active-theme layout.
+     *  @param anchorTopRight Screen-space top-right anchor.
+     *  @param labels Active feature labels.
+     *  @param count Number of entries in @p labels.
+     *  @param options Optional visual layout override.
+     */
     void StatusList(ImVec2 anchorTopRight, const char* const* labels, int count,
                     const StatusListOptions& options = StatusListOptions());
 
-    // Draw a top-right-anchored vertical stack of accent pill chips (one per active
-    // feature label) on the foreground draw list. Retained for API compatibility.
+    /** @brief Draws legacy top-right accent chips.
+     *  @param anchorTopRight Screen-space top-right anchor.
+     *  @param labels Active feature labels.
+     *  @param count Number of entries in @p labels.
+     */
     void StatusChips(ImVec2 anchorTopRight, const char* const* labels, int count);
+    /** @brief Draws legacy accent chips from an initializer list.
+     *  @param anchorTopRight Screen-space top-right anchor.
+     *  @param activeLabels Active feature labels.
+     */
     void StatusChips(ImVec2 anchorTopRight, std::initializer_list<const char*> activeLabels);
 }

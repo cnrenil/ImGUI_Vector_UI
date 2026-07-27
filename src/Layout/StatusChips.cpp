@@ -85,8 +85,7 @@ namespace IVUI
         const ImVec2 mn(anchorTopRight.x - width, anchorTopRight.y);
         const ImVec2 mx(anchorTopRight.x, anchorTopRight.y + height);
 
-        // VAPE-style "marquee": a moving RGB perimeter, not scrolling text.
-        // The hue follows the border length, so it appears to orbit the module list.
+        // Hue follows the border length to create a continuous perimeter animation.
         const ImVec2 edge[5] = {
             ImVec2(mn.x + th.HudBorderThickness * S * 2.0f, mn.y + th.HudBorderThickness * S * 2.0f),
             ImVec2(mx.x - th.HudBorderThickness * S * 2.0f, mn.y + th.HudBorderThickness * S * 2.0f),

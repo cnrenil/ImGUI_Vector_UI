@@ -1,6 +1,4 @@
-// ImGuiVectorUI — Easing engine.
-// Ported from ImGui-UI1001 (OpaiUI) MainUI/Easing. Pure math over ImGui types,
-// zero backend dependency.
+/** @file Easing.h @brief Interpolation functions for scalar, color, and vector values. */
 #pragma once
 
 #include "imgui.h"
@@ -31,6 +29,7 @@ namespace IVUI
         EASE_OUT_ELASTIC,
     };
 
+    /** @brief Interpolates from @p start to @p end using @p type at progress @p t. */
     float   EaseValue(float start, float end, float t, EasingType type);
     float   EaseValueCalc(float start, float end, float t, EasingType type);
     bool    EaseValueColor(ImColor start, ImColor end, ImColor* v, float t, EasingType type);

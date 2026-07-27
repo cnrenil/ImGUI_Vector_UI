@@ -1,21 +1,31 @@
-// ImGuiVectorUI — theme-driven text drawing.
-// Sizes text from theme tokens via ImFont::CalcTextSizeA + ImDrawList::AddText
-// (stable across ImGui versions), instead of MYGui's SetWindowFontScale /
-// FontWindowScale approach (which the 1.92 font rework changes).
+/** @file DrawText.h @brief Theme-scaled text measurement and drawing. */
 #pragma once
 
 #include "imgui.h"
 
 namespace IVUI
 {
-    // Font the library draws with (theme override -> context font -> ImGui default).
+    /** @brief Returns the regular font selected by the theme or context. */
     ImFont* GetRegularFont();
     ImFont* GetTitleFont();
 
-    // Everything after a '|' in a label is a disambiguation key, not shown.
+    /** @brief Returns the end of the visible portion of a label. */
     const char* VisibleEnd(const char* label);
 
-    // pt is a theme point size; it is multiplied by the current theme Scale here.
+    /** @brief Measures a label at the theme-scaled point size @p pt.
+     *  @param label Text whose ID suffix is excluded from measurement.
+     *  @param pt Unscaled theme point size.
+     *  @param font Optional font override.
+     *  @return Text size in screen pixels.
+     */
     ImVec2 CalcTextScaled(const char* label, float pt, ImFont* font = nullptr);
+    /** @brief Adds theme-scaled text to a draw list.
+     *  @param draw Target draw list.
+     *  @param pos Screen position in pixels.
+     *  @param col Packed RGBA text color.
+     *  @param label Text whose ID suffix is not rendered.
+     *  @param pt Unscaled theme point size.
+     *  @param font Optional font override.
+     */
     void   AddTextScaled(ImDrawList* draw, ImVec2 pos, ImU32 col, const char* label, float pt, ImFont* font = nullptr);
 }

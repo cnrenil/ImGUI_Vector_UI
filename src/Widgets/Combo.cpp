@@ -15,9 +15,6 @@
 
 namespace IVUI
 {
-    // Draw the header (label + closed box + current text + chevron) and place the
-    // header hit button. Returns the header rect end (top of the dropdown) and the
-    // usable width; toggles `a.hidden` (reused as "is open") on click.
     static ImVec2 ComboHeader(const char* label, const char* currentText, AnimSlot& a, float& width, float& rowH)
     {
         const Theme& th = GetTheme();
@@ -47,12 +44,9 @@ namespace IVUI
         if (ImGui::InvisibleButton(label, ImVec2(width, rowH)))
             a.hidden = !a.hidden; // "is open"
 
-        // Dropdown starts at the header's bottom-LEFT (not bottom-right).
         return ImVec2(bgPos.x, bgEnd.y);
     }
 
-    // Draw one dropdown row (bg + check icon + text). `on` drives the highlight ease.
-    // The caller places an InvisibleButton at the row before calling this.
     static void ComboRow(AnimSlot& a, int index, const char* text, float width, float rowH, bool on)
     {
         const Theme& th = GetTheme();
@@ -64,7 +58,6 @@ namespace IVUI
         it.direction = on ? 1.0f : -1.0f;
         it.t = ImClamp(it.t + DeltaTime() * 8.0f * it.direction, 0.0f, 1.0f);
 
-        WidgetGlow(draw, ip, ImVec2(ip.x + width, ip.y + rowH), th.Accent, 0.0f, it.t);
         const ImU32 bg = EaseValueColor(ImColor(th.Surface1), ImColor(th.Accent), it.t, EASE_IN_SINE);
         draw->AddRectFilled(ip, ImVec2(ip.x + width, ip.y + rowH), bg);
 
@@ -78,9 +71,7 @@ namespace IVUI
         AddTextScaled(draw, ImVec2(txtX, ip.y + (rowH - txtSize.y) * 0.5f), txtCol, text, th.FontSizeLabel);
     }
 
-    // Render the dropdown rows inside a clipped child of known (animated) height.
-    // Rows are a fixed height, so the target height is exactly count*rowH — no
-    // fragile content measurement needed.
+    // Fixed row height makes the animated child height deterministic.
     static void ComboReveal(const char* label, AnimSlot& a, ImVec2 dropTop, float width, float rowH,
                             int count, const std::function<void(int)>& row)
     {

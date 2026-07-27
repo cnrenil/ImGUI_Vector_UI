@@ -18,7 +18,6 @@ namespace IVUI
 {
     enum class TBIcon { Edit, Close };
 
-    // A round title-bar button (pencil or 'x'). Returns clicked.
     static bool TitleButton(const char* id, ImVec2 center, float r, TBIcon icon, bool active)
     {
         const Theme& th = GetTheme();
@@ -67,7 +66,7 @@ namespace IVUI
         const ImVec2 wpos = ImGui::GetWindowPos();
         ImGuiWindow* win = ImGui::GetCurrentWindow();
 
-        // Key animation state by the stable window id (rename-safe thanks to "###").
+        // The ID suffix keeps animation state stable while the visible title changes.
         AnimSlot& a = SlotID(win->ID);
 
         a.direction = a.hidden ? -1.0f : 1.0f;
@@ -77,28 +76,26 @@ namespace IVUI
         ImGui::SetWindowSize(ImVec2(maxSize.x * S, totalH));
         const ImVec2 wsize = ImGui::GetWindowSize();
 
-        // Backdrop: GPU glass pass (translucent tint + glow + shadow, drawn beneath
-        // ImGui). All parameters come from the (eased) theme so they morph per style.
+        // Submit glass before ImGui so it remains beneath panel content.
         const float pround = th.RoundingPanel * S;
         {
             GlassRect g;
             g.min = wpos; g.max = wpos + wsize;
             g.rounding = pround;
-            g.opacity = 0.5f * th.PanelBodyAlpha;
-            g.tint = th.Surface0; g.accent = th.Accent; g.glow = th.Glow;
+            g.opacity = th.GlassOpacity;
+            g.tint = th.GlassTint; g.tintStrength = th.GlassTintStrength;
+            g.accent = th.Accent; g.glow = th.Glow;
             g.glowStrength = th.PanelGlow; g.glowSpread = th.PanelGlowSpread * S;
             g.shadowStrength = th.PanelShadow; g.shadowSpread = th.PanelShadowSpread * S;
             SubmitGlass(g);
         }
-        draw->AddRectFilled(wpos, wpos + wsize, WithAlphaMul(th.Surface0, th.PanelBodyAlpha), pround);
         if (th.BorderThickness > 0.01f)
             draw->AddRect(wpos, wpos + wsize, th.Border, pround, 0, th.BorderThickness * S);
 
         const ImVec2 titleEnd = ImVec2(wpos.x + wsize.x, wpos.y + titleH);
-        draw->AddRectFilled(wpos, titleEnd, WithAlphaMul(th.Surface1, th.PanelBodyAlpha), pround, ImDrawFlags_RoundCornersTop);
+        draw->AddRectFilled(wpos, titleEnd, WithAlphaMul(th.Surface1, th.PanelBodyAlpha * 0.10f), pround, ImDrawFlags_RoundCornersTop);
         Sheen(draw, wpos, titleEnd, pround, th.Sheen);
         draw->AddLine(ImVec2(wpos.x + pad, titleEnd.y), ImVec2(titleEnd.x - pad, titleEnd.y), th.Accent, ImMax(2.0f * S, 1.0f));
-        // Title text OR an inline rename input (double-click to edit).
         static ImGuiID s_renameId = 0;
         static bool s_renameFocus = false;
         const float rr = titleH * 0.28f;
@@ -140,7 +137,6 @@ namespace IVUI
             }
         }
 
-        // Title-bar buttons (right to left: close, add).
         if (hdr)
         {
             const float r = titleH * 0.28f;

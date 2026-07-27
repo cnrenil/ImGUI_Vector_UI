@@ -31,11 +31,9 @@ namespace IVUI
         const bool hovered = ImGui::IsItemHovered();
         const bool held = ImGui::IsItemActive();
 
-        // Ease toward hover/held state.
         const float target = held ? 1.0f : (hovered ? 0.6f : 0.0f);
         a.t = ImClamp(a.t + (target - a.t) * ImClamp(DeltaTime() * 12.0f, 0.0f, 1.0f), 0.0f, 1.0f);
 
-        // Press inset (shrinks slightly while held).
         a.t2 = ImClamp(a.t2 + ((held ? 1.0f : 0.0f) - a.t2) * ImClamp(DeltaTime() * 20.0f, 0.0f, 1.0f), 0.0f, 1.0f);
         const float inset = EaseValue(0.0f, 2.5f * S, a.t2, EASE_OUT_QUAD);
 
@@ -47,8 +45,6 @@ namespace IVUI
         const ImVec2 mn = cursor + ImVec2(inset, inset);
         const ImVec2 mx = cursor + size - ImVec2(inset, inset);
         const float bround = PillRounding(size.y);
-        // Style-driven glow: prominent always reacts; plain buttons glow on hover.
-        WidgetGlow(draw, mn, mx, th.Accent, bround, prominent ? ImMax(a.t, 0.35f) : a.t);
         draw->AddRectFilled(mn, mx, fill, bround);
         if (th.BorderThickness > 0.01f && (!prominent || th.FillGradient))
             draw->AddRect(mn, mx, prominent ? th.Border : th.BorderMuted, bround, 0, th.BorderThickness * S);

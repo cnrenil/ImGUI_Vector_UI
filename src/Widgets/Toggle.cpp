@@ -25,20 +25,16 @@ namespace IVUI
         a.direction = *v ? 1.0f : -1.0f;
         a.t = ImClamp(a.t + DeltaTime() * 8.0f * a.direction, 0.0f, 1.0f);
 
-        // Label (vertically centered against the track).
         const ImVec2 labelSize = CalcTextScaled(label, th.FontSizeLabel);
         AddTextScaled(draw, ImVec2(cursor.x, cursor.y + (bg.y - labelSize.y) * 0.5f), th.Text, label, th.FontSizeLabel);
 
-        // Track (right-aligned to the shared right inset, matching sliders).
         const float rightInset = 12.0f * S;
         const ImVec2 bgPos = ImVec2(cursor.x + ImMax(avail.x - rightInset - bg.x, bg.x), cursor.y);
         const float rounding = PillRounding(bg.y);
-        WidgetGlow(draw, bgPos, bgPos + bg, th.Accent, rounding, a.t); // glows when on
         const ImU32 track = EaseValueColor(ImColor(th.TrackOff), ImColor(th.Accent), a.t, EASE_IN_OUT_CIRC);
         draw->AddRectFilled(bgPos, bgPos + bg, track, rounding);
         Sheen(draw, bgPos, bgPos + bg, rounding, th.Sheen);
 
-        // Knob slides + grows; check icon fades in.
         const float knobR = EaseValue(bg.y * 0.32f, bg.y * 0.38f, a.t, EASE_IN_OUT_CIRC);
         const ImVec2 knobC = ImVec2(bgPos.x + EaseValue(bg.y * 0.5f, bg.x - bg.y * 0.5f, a.t, EASE_IN_OUT_CIRC),
                                     bgPos.y + bg.y * 0.5f);
@@ -47,7 +43,6 @@ namespace IVUI
         const ImU32 check = EaseValueColor(ImColor(0, 0, 0, 0), ImColor(th.OnAccent), a.t, EASE_IN_OUT_CIRC);
         IconCheck(draw, knobC, knobR * 1.15f, check, ImMax(1.5f * S, 1.0f));
 
-        // Hit test across the whole row.
         ImGui::SetCursorScreenPos(cursor);
         const bool clicked = ImGui::InvisibleButton(label, ImVec2(ImMax(avail.x, bg.x), bg.y));
         if (clicked)

@@ -10,8 +10,10 @@ namespace IVUI
         int mode = 0; // 0 = Toggle, 1 = Hold, 2 = Always
     };
 
-    // Draws: label + primary key chip + secondary key chip + a 3-way mode selector.
-    // Click a chip then press any key (keyboard or mouse) to bind; Esc clears it.
-    // Returns true when a binding changed.
+    /** @brief Draws and edits a two-key binding with an activation mode.
+     *  @param label Visible label and ImGui ID source.
+     *  @param kb Binding to display and update.
+     *  @return True when a key or activation mode changed.
+     */
     bool KeybindRow(const char* label, Keybind* kb);
 }

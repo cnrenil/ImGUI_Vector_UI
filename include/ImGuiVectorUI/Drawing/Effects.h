@@ -1,23 +1,23 @@
-// ImGuiVectorUI — renderer-agnostic GPU-effect bridge.
-//
-// Widgets/panels can request a "glass" backdrop (translucent tint + outer glow +
-// drop shadow + edge sheen) drawn by a custom GPU shader *behind* the ImGui draw
-// data. The library only records screen-space rects + theme params into a per-frame
-// queue; the host's DX12 (or other) backend consumes the queue and renders it in a
-// dedicated pass before ImGui. This keeps IVUI itself free of any GPU/backend code.
+/** @file Effects.h
+ *  @brief Renderer-independent draw-list bridge for glass backdrops.
+ */
 #pragma once
 
 #include "imgui.h"
 
+#include <cstddef>
+#include <type_traits>
+
 namespace IVUI
 {
-    // One glass panel to composite. Positions are in screen (pixel) space.
+    /** @brief Screen-space parameters for one glass backdrop. */
     struct GlassRect
     {
         ImVec2 min, max;      // rect in screen pixels
         float  rounding;      // corner radius in pixels
         float  opacity;       // 0..1 fill strength of the glass tint
         ImU32  tint;          // glass body color (alpha ignored; opacity drives it)
+        float  tintStrength;  // 0 = pure backdrop blur, 1 = fully tinted glass
         ImU32  accent;        // edge-sheen / accent color
         ImU32  glow;          // outer-glow color (alpha ignored; glowStrength drives it)
         float  glowStrength;  // 0..1 outer glow intensity
@@ -26,28 +26,64 @@ namespace IVUI
         float  shadowSpread;  // px falloff distance of the drop shadow
     };
 
-    // Global glass style shared by library panels (IVUI::Panel) and tunable from
-    // the host/demo. `bodyAlpha` is the opacity of the ImGui-drawn panel fill on
-    // top of the GPU glass (lower = more see-through). Spreads are in unscaled px
-    // (multiplied by the theme Scale at submit time).
-    struct GlassStyle
-    {
-        bool  enabled = true;
-        float opacity = 0.55f;        // GPU glass tint fill strength
-        float bodyAlpha = 0.72f;      // ImGui panel-fill opacity over the glass
-        float glowStrength = 0.55f;
-        float glowSpread = 26.0f;
-        float shadowStrength = 0.5f;
-        float shadowSpread = 18.0f;
-    };
-    void              SetGlassStyle(const GlassStyle& s);
-    const GlassStyle& GetGlassStyle();
+    /** @brief Host hook invoked from an ImGui draw-list callback at a panel's Z position. */
+    using GlassRenderCallback = void (*)(const GlassRect& rect);
 
-    // Queue a glass backdrop for this frame (call while building the UI, e.g. from
-    // inside a Panel). Cleared automatically at the next IVUI::NewFrame().
+    /** @brief Binary constant layout consumed by EffectsShaderSource().
+     *
+     *  Each entry maps directly to one HLSL @c float4 in @c uData. Hosts must
+     *  upload all 24 floats as 32-bit root constants or an equivalent uniform
+     *  buffer layout.
+     */
+    struct GlassShaderConstants
+    {
+        float values[24]{};
+    };
+    static_assert(std::is_standard_layout_v<GlassShaderConstants> &&
+                  std::is_trivially_copyable_v<GlassShaderConstants> &&
+                  sizeof(GlassShaderConstants) == sizeof(float) * 24,
+                  "Glass shader constants must match HLSL float4 uData[6].");
+    /** @brief Installs the host compositor used to render glass at ImGui window depth. */
+    void              SetGlassRenderCallback(GlassRenderCallback callback);
+    /** @brief Inserts a backdrop compositor callback into the current ImGui window.
+     *  @param r Screen-space backdrop parameters.
+     */
     void SubmitGlass(const GlassRect& r);
 
-    // Host hook: read the glass queue for this frame. Returns the array base and
-    // writes the count. Valid until the next NewFrame(). Never null when count > 0.
-    const GlassRect* CollectGlass(int* outCount);
+    /** @brief Builds constants for one separable Gaussian blur pass.
+     *  @param renderTargetSize Source texture dimensions in pixels.
+     *  @param direction Blur axis, normally (1, 0) or (0, 1).
+     *  @param sigma Gaussian standard deviation in pixels.
+     *  @return Constants compatible with the @c GaussianPS entry point.
+     */
+    GlassShaderConstants MakeGaussianBlurConstants(ImVec2 renderTargetSize, ImVec2 direction, float sigma);
+    /** @brief Builds constants for the opaque host background pass.
+     *  @param renderTargetSize Background dimensions in pixels.
+     *  @param timeSeconds Monotonic animation time in seconds.
+     *  @return Constants compatible with the @c BackgroundPS entry point.
+     */
+    GlassShaderConstants MakeBackgroundConstants(ImVec2 renderTargetSize, float timeSeconds);
+    /** @brief Builds constants for filtering ImGui pixels before blur passes.
+     *  @param colorMax Inclusive per-component color ceiling.
+     *  @param colorMin Inclusive per-component color floor.
+     *  @param averageThreshold Minimum average RGB brightness.
+     *  @param saturationThreshold Minimum RGB chroma; neutral text is excluded.
+     *  @return Constants compatible with the @c FilterPS entry point.
+     */
+    GlassShaderConstants MakeBloomFilterConstants(ImVec4 colorMax, ImVec4 colorMin, float averageThreshold, float saturationThreshold);
+    /** @brief Builds constants for additive bloom compositing of a blurred UI frame.
+     *  @param strength Additive bloom intensity.
+     *  @return Constants compatible with the @c GlowPS entry point.
+     */
+    GlassShaderConstants MakeGlowCompositeConstants(float strength);
+    /** @brief Builds constants for one glass-composite draw.
+     *  @param rect Screen-space glass request to encode.
+     *  @return Constants compatible with the @c CompositePS entry point.
+     */
+    GlassShaderConstants MakeGlassCompositeConstants(const GlassRect& rect);
+    /** @brief Returns reusable HLSL for background, Gaussian blur, glass and glow effects.
+     *  @return UTF-8 HLSL source containing the effects pass entry points.
+     */
+    const char* EffectsShaderSource();
+
 }

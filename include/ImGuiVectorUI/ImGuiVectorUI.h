@@ -7,6 +7,7 @@
 // Host usage:
 //   IVUI::CreateContext();                 // after ImGui_ImplXXX_Init
 //   ... per frame, after ImGui::NewFrame(): IVUI::NewFrame();
+//   ... configure IVUI::SetGlassRenderCallback() before rendering draw data
 //   IVUI::DestroyContext();                // before ImGui::DestroyContext()
 #pragma once
 
