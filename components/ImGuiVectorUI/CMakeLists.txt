@@ -208,7 +208,7 @@ if(IVUI_BUILD_VULKAN_EFFECTS)
         find_program(Vulkan_GLSLANG_VALIDATOR_EXECUTABLE glslangValidator REQUIRED)
     endif()
     set(IVUI_VULKAN_SHADER_OUTPUTS)
-    foreach(shader effects.vert effects_blur.frag effects_material.frag effects_shape.frag effects_bloom.frag)
+    foreach(shader effects.vert effects_background.frag effects_blur.frag effects_material.frag effects_shape.frag effects_bloom.frag effects_composite.frag)
         set(output "${CMAKE_CURRENT_BINARY_DIR}/shaders/${shader}.spv")
         add_custom_command(OUTPUT "${output}"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders"
@@ -219,6 +219,8 @@ if(IVUI_BUILD_VULKAN_EFFECTS)
         list(APPEND IVUI_VULKAN_SHADER_OUTPUTS "${output}")
     endforeach()
     add_custom_target(ImGuiVectorUIVulkanShaders DEPENDS ${IVUI_VULKAN_SHADER_OUTPUTS})
+    set_target_properties(ImGuiVectorUIVulkanShaders PROPERTIES
+        IVUI_SHADER_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
     add_dependencies(ImGuiVectorUIEffectsVulkan ImGuiVectorUIVulkanShaders)
 
     add_library(ImGuiVectorUIRendererVulkan STATIC

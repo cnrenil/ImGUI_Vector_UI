@@ -17,5 +17,5 @@ void main()
     vec2 point = gl_FragCoord.xy;
     float bounds = all(greaterThanEqual(point, constants.data[2].xy)) &&
                    all(lessThanEqual(point, constants.data[2].zw)) ? 1.0 : 0.0;
-    outColor = vec4(color.rgb * brightness * saturation * bounds * constants.data[1].y, 0.0);
+    outColor = vec4(color.rgb * brightness * saturation * bounds, 0.0);
 }

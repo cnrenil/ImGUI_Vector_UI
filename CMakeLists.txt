@@ -9,6 +9,13 @@ option(IVUI_BUILD_DX11_EFFECTS "Build the optional DirectX 11 effects backend" $
 option(IVUI_BUILD_VULKAN_EFFECTS "Build the optional Vulkan effects backend" OFF)
 option(IVUI_BUILD_WIN32_PLATFORM "Build the Win32 platform adapter" ${WIN32})
 option(IVUI_INSTALL "Generate install and package export rules" ${PROJECT_IS_TOP_LEVEL})
+option(IVUI_BUILD_DX11_DEMO "Build the Win32/DX11 demonstration host" ${IVUI_BUILD_DEMO})
+set(IVUI_BUILD_VULKAN_DEMO_DEFAULT OFF)
+if(IVUI_BUILD_DEMO AND IVUI_BUILD_VULKAN_EFFECTS)
+    set(IVUI_BUILD_VULKAN_DEMO_DEFAULT ON)
+endif()
+option(IVUI_BUILD_VULKAN_DEMO "Build the Win32/Vulkan demonstration host"
+    ${IVUI_BUILD_VULKAN_DEMO_DEFAULT})
 
 set(IVUI_IMGUI_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui" CACHE PATH
     "Dear ImGui source tree used when no imgui target is supplied")
@@ -21,4 +28,10 @@ add_subdirectory(components/ImGuiVectorUI)
 
 if(IVUI_BUILD_DEMO)
     add_subdirectory(apps/Dx12Host)
+endif()
+if(IVUI_BUILD_DX11_DEMO)
+    add_subdirectory(apps/Dx11Host)
+endif()
+if(IVUI_BUILD_VULKAN_DEMO)
+    add_subdirectory(apps/VulkanHost)
 endif()

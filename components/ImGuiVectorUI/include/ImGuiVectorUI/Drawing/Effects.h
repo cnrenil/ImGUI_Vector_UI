@@ -110,6 +110,19 @@ namespace IVUI
         float a = 1.0f;
     };
 
+    struct BackgroundShaderParams
+    {
+        EffectColor topColor{0.018f, 0.026f, 0.050f, 1.0f};
+        EffectColor bottomColor{0.003f, 0.006f, 0.014f, 1.0f};
+        EffectColor accent{1.0f, 0.24f, 0.36f, 1.0f};
+        EffectColor secondary{0.0f, 0.72f, 0.88f, 1.0f};
+        float gridSize = 48.0f;
+        float gridStrength = 0.42f;
+        float vignette = 0.48f;
+        float animationSpeed = 1.0f;
+        float intensity = 1.25f;
+    };
+
     constexpr EffectColor EffectColorFromRgba8(std::uint32_t rgba) noexcept
     {
         constexpr float scale = 1.0f / 255.0f;
@@ -254,6 +267,32 @@ namespace IVUI
         constants.values[2] = direction.x;
         constants.values[3] = direction.y;
         constants.values[4] = sigma;
+        return constants;
+    }
+
+    constexpr EffectConstants MakeBackgroundEffectConstants(
+        const BackgroundShaderParams& background, EffectExtent extent,
+        float timeSeconds) noexcept
+    {
+        EffectConstants constants{};
+        const EffectColor colors[] = {
+            background.topColor, background.bottomColor,
+            background.accent, background.secondary};
+        for (std::size_t index = 0; index < std::size(colors); ++index)
+        {
+            constants.values[index * 4 + 0] = colors[index].r;
+            constants.values[index * 4 + 1] = colors[index].g;
+            constants.values[index * 4 + 2] = colors[index].b;
+            constants.values[index * 4 + 3] = colors[index].a;
+        }
+        constants.values[16] = timeSeconds;
+        constants.values[17] = background.gridSize;
+        constants.values[18] = background.gridStrength;
+        constants.values[19] = background.vignette;
+        constants.values[20] = static_cast<float>(extent.width);
+        constants.values[21] = static_cast<float>(extent.height);
+        constants.values[22] = background.animationSpeed;
+        constants.values[23] = background.intensity;
         return constants;
     }
 

@@ -14,19 +14,7 @@
 namespace IVUI::DX12
 {
     bool ValidateEffectShaders(std::string* error = nullptr) noexcept;
-
-    struct BackgroundShaderParams
-    {
-        EffectColor topColor{0.025f, 0.035f, 0.055f, 1.0f};
-        EffectColor bottomColor{0.004f, 0.007f, 0.014f, 1.0f};
-        EffectColor accent{1.0f, 0.35f, 0.3f, 1.0f};
-        EffectColor secondary{0.08f, 0.55f, 0.72f, 1.0f};
-        float gridSize = 52.0f;
-        float gridStrength = 0.12f;
-        float vignette = 0.58f;
-        float animationSpeed = 1.0f;
-        float intensity = 1.0f;
-    };
+    using BackgroundShaderParams = IVUI::BackgroundShaderParams;
 
     struct EffectRendererCreateInfo
     {

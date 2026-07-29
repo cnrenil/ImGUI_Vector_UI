@@ -100,6 +100,7 @@ $env:VSLANG = '1033'
 $BuildDemo = if ($NoDemo -or $ComponentOnly) { 'OFF' } else { 'ON' }
 $BuildTests = if ($NoTests) { 'OFF' } else { 'ON' }
 $BuildVulkan = if ($Vulkan) { 'ON' } else { 'OFF' }
+$BuildVulkanDemo = if ($BuildDemo -eq 'ON' -and $BuildVulkan -eq 'ON') { 'ON' } else { 'OFF' }
 $CMakeNMake = $NMake.Replace('\', '/')
 $CMakeCompiler = (Join-Path $MsvcBinaryRoot 'cl.exe').Replace('\', '/')
 $CMakeRc = (Join-Path $SdkBinaryRoot 'rc.exe').Replace('\', '/')
@@ -126,6 +127,8 @@ $ConfigureArguments = @(
 
 if (-not $ComponentOnly) {
     $ConfigureArguments += "-DIVUI_BUILD_DEMO=$BuildDemo"
+    $ConfigureArguments += "-DIVUI_BUILD_DX11_DEMO=$BuildDemo"
+    $ConfigureArguments += "-DIVUI_BUILD_VULKAN_DEMO=$BuildVulkanDemo"
 }
 
 if ($CMakeArguments) {

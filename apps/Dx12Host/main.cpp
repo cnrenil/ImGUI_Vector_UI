@@ -292,11 +292,12 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
         const ImVec4 accent = ImGui::ColorConvertU32ToFloat4(theme.Accent);
         renderFrame.effects.renderBackground = true;
         renderFrame.effects.background.accent = {accent.x, accent.y, accent.z, accent.w};
-        renderFrame.effects.background.secondary = {0.08f, 0.58f, 0.72f, 1.0f};
-        renderFrame.effects.background.gridSize = 54.0f * theme.Scale;
-        renderFrame.effects.background.gridStrength = 0.16f;
-        renderFrame.effects.background.vignette = 0.62f;
-        renderFrame.effects.background.animationSpeed = 1.0f;
+        renderFrame.effects.background.secondary = {0.0f, 0.72f, 0.88f, 1.0f};
+        renderFrame.effects.background.gridSize = 48.0f * theme.Scale;
+        renderFrame.effects.background.gridStrength = 0.42f;
+        renderFrame.effects.background.vignette = 0.48f;
+        renderFrame.effects.background.animationSpeed = 1.15f;
+        renderFrame.effects.background.intensity = 1.3f;
         renderFrame.effects.renderBloom = theme.PanelGlow > 0.001f;
         renderFrame.effects.bloom.bounds = {
             {0.0f, 0.0f}, {renderTargetSize.x, renderTargetSize.y}};

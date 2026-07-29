@@ -20,8 +20,10 @@ void main()
     float sdf = roundedRectSdf(gl_FragCoord.xy, constants.data[0].xy + offset,
                                constants.data[0].zw + offset, constants.data[1].x);
     float sigma = max(constants.data[1].z, 0.5);
-    float alpha = exp(-max(sdf, 0.0) * max(sdf, 0.0) / (2.0 * sigma * sigma)) *
-                  clamp(constants.data[1].y, 0.0, 1.0);
+    float outside = max(sdf, 0.0);
+    float outsideMask = smoothstep(-0.5, 0.5, sdf);
+    float alpha = exp(-outside * outside / (2.0 * sigma * sigma)) * outsideMask *
+                  clamp(constants.data[1].y, 0.0, 1.0) * constants.data[2].a;
     if (alpha <= 0.001)
         discard;
     outColor = vec4(constants.data[2].rgb * alpha, alpha);

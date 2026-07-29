@@ -72,12 +72,12 @@ namespace IVUI
         float PanelBodyAlpha;    ///<  ImGui-drawn panel/header overlay opacity over GPU glass
         float GlassTintStrength; ///<  0 = pure blur, 1 = fully tinted glass body
         float GlassOpacity;      ///<  final glass layer opacity over the blurred backdrop
-        float GlassRefraction;   ///<  px of edge-only backdrop displacement (0 = flat frosted glass)
+        float GlassRefraction;   ///<  px of normal-directed rim displacement (0 = no rim refraction)
         float GlassEdgeWidth;    ///<  px width of the refractive material rim (unscaled)
         float GlassEdgeHighlight;///<  0..1 strength of the directional specular rim
         float GlassThickness;    ///<  0..1 optical depth; increases tint, refraction and shadow
         float GlassShapePower;   ///<  rounded-edge lens response exponent (higher = a tighter refractive rim)
-        float GlassLensStrength; ///<  exponential lens curve amplitude
+        float GlassLensStrength; ///<  exponential center-directed backdrop compression amplitude
         float GlassLensBase;     ///<  base of the lens exponential curve
         float GlassLensFalloff;  ///<  distance decay of the lens exponential curve
         float GlassLensBias;     ///<  rim bias of the lens exponential curve

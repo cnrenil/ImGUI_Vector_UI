@@ -68,6 +68,25 @@ float Hash21(float2 value)
     return frac(value.x * value.y);
 }
 
+float SmoothNoise21(float2 value)
+{
+    float2 cell = floor(value);
+    float2 local = frac(value);
+    float2 curve = local * local * (3.0 - 2.0 * local);
+    float a = Hash21(cell);
+    float b = Hash21(cell + float2(1.0, 0.0));
+    float c = Hash21(cell + float2(0.0, 1.0));
+    float d = Hash21(cell + float2(1.0, 1.0));
+    return lerp(lerp(a, b, curve.x), lerp(c, d, curve.x), curve.y);
+}
+
+float LineMask(float2 coordinate)
+{
+    float2 width = max(fwidth(coordinate), 0.001);
+    float2 distanceToLine = abs(frac(coordinate - 0.5) - 0.5) / width;
+    return 1.0 - saturate(min(distanceToLine.x, distanceToLine.y));
+}
+
 float4 BackgroundPS(VertexOutput input) : SV_Target
 {
     float3 topColor = uData[0].rgb;
@@ -86,24 +105,23 @@ float4 BackgroundPS(VertexOutput input) : SV_Target
     centered.x *= resolution.x / resolution.y;
     float3 color = lerp(topColor, bottomColor, smoothstep(0.0, 1.0, uv.y));
 
-    float2 gridCoord = input.position.xy / gridSize;
-    float2 gridDistance = abs(frac(gridCoord - 0.5) - 0.5) / max(fwidth(gridCoord), 0.001);
-    float fineGrid = 1.0 - saturate(min(gridDistance.x, gridDistance.y));
-    float2 majorCoord = gridCoord / 5.0;
-    float2 majorDistance = abs(frac(majorCoord - 0.5) - 0.5) / max(fwidth(majorCoord), 0.001);
-    float majorGrid = 1.0 - saturate(min(majorDistance.x, majorDistance.y));
-    color += secondary * (fineGrid * gridStrength * 0.16 + majorGrid * gridStrength * 0.32);
+    float fineGrid = LineMask(input.position.xy / gridSize);
+    float majorGrid = LineMask(input.position.xy / (gridSize * 5.0));
+    color += secondary * (fineGrid * gridStrength * 0.28 + majorGrid * gridStrength * 0.68);
 
-    float ridgeA = exp(-pow(abs(centered.y + 0.28 + sin(centered.x * 2.2 + time * 0.45) * 0.09), 2.0) * 115.0);
-    float ridgeB = exp(-pow(abs(centered.y - 0.18 + sin(centered.x * 3.4 - time * 0.32) * 0.065), 2.0) * 170.0);
-    color += accent * ridgeA * 0.22 * intensity;
-    color += secondary * ridgeB * 0.18 * intensity;
+    float waveA = centered.y + 0.30 + sin(centered.x * 2.5 + time * 0.75) * 0.11;
+    float waveB = centered.y - 0.20 + sin(centered.x * 4.1 - time * 0.58) * 0.075;
+    color += accent * exp(-waveA * waveA * 105.0) * 0.58 * intensity;
+    color += secondary * exp(-waveB * waveB * 155.0) * 0.48 * intensity;
 
-    float horizon = exp(-abs(centered.y + 0.03) * 7.0) * 0.08;
-    color += lerp(accent, secondary, uv.x) * horizon * intensity;
-    float vignette = 1.0 - smoothstep(0.35, 1.45, length(centered));
+    float2 beaconPosition = float2(sin(time * 0.42) * 0.72, cos(time * 0.31) * 0.34);
+    float beacon = exp(-dot(centered - beaconPosition, centered - beaconPosition) * 11.0);
+    float diagonal = exp(-pow(centered.y + centered.x * 0.34 - sin(time * 0.26) * 0.25, 2.0) * 75.0);
+    color += accent * beacon * 0.52 * intensity;
+    color += lerp(accent, secondary, uv.x) * diagonal * 0.20 * intensity;
+    float vignette = 1.0 - smoothstep(0.30, 1.48, length(centered));
     color *= lerp(1.0, vignette, vignetteStrength);
-    color += (Hash21(input.position.xy + floor(time * 12.0)) - 0.5) / 255.0;
+    color += (Hash21(input.position.xy + floor(time * 12.0)) - 0.5) / 320.0;
     return float4(max(color, 0.0), 1.0);
 }
 
@@ -121,6 +139,12 @@ float4 GlassPS(VertexOutput input) : SV_Target
     float edgeWidth = max(uData[3].z, 0.5);
     float edgeHighlight = saturate(uData[3].w);
     float thickness = saturate(uData[4].x);
+    float shapePower = max(uData[4].y, 2.0);
+    float lensStrength = max(uData[4].z, 0.0);
+    float lensBase = max(uData[4].w * 2.718281828, 1.0001);
+    float lensFalloff = max(uData[5].x, 0.1);
+    float lensBias = max(uData[5].y, 0.0);
+    float lensPower = max(uData[5].z, 0.1);
     float noiseStrength = uData[5].w;
     float glowStrength = saturate(uData[6].x);
     float glowSpread = max(uData[6].y, 0.5);
@@ -139,12 +163,31 @@ float4 GlassPS(VertexOutput input) : SV_Target
         RoundedRectSdf(input.position.xy + float2(0.0, epsilon), rectMin, rectMax, radius) -
             RoundedRectSdf(input.position.xy - float2(0.0, epsilon), rectMin, rectMax, radius));
     normal = normalize(normal + 0.0001);
-    float noise = frac(sin(dot(input.position.xy + time, float2(12.9898, 78.233))) * 43758.5453) - 0.5;
-    float2 sampleUv = clamp(input.uv + texel * normal * (refraction * edge + noise * noiseStrength),
-                            texel * 0.5, 1.0 - texel * 0.5);
+
+    float2 center = (rectMin + rectMax) * 0.5;
+    float2 halfSize = max((rectMax - rectMin) * 0.5, 1.0);
+    float lensRadius = max(min(halfSize.x, halfSize.y), 1.0);
+    float edgeDistance = saturate(max(-sdf, 0.0) / lensRadius);
+    float interiorDistance = pow(edgeDistance, 2.0 / shapePower);
+    float lensCompression = saturate(
+        lensStrength * pow(lensBase, -lensFalloff * interiorDistance - lensBias));
+    lensCompression = min(lensCompression, 0.98);
+    float lensScale = pow(max(1.0 - lensCompression, 0.02), lensPower);
+    float2 lensOffset = ((center + (input.position.xy - center) * lensScale) -
+                         input.position.xy) * texel;
+
+    float2 noisePosition = input.position.xy * 0.045 + float2(time * 0.35, -time * 0.23);
+    float2 surfaceNoise = float2(SmoothNoise21(noisePosition),
+                                 SmoothNoise21(noisePosition + 19.19)) * 2.0 - 1.0;
+    float rimRefraction = refraction * edge * (0.35 + thickness * 0.65);
+    float2 sampleUv = input.uv + lensOffset + texel *
+        (normal * rimRefraction + surfaceNoise * noiseStrength * (0.25 + lensCompression * 0.75));
+    sampleUv = clamp(sampleUv, texel * 0.5, 1.0 - texel * 0.5);
     float3 backdrop = SourceTexture.Sample(LinearClamp, sampleUv).rgb;
     float3 material = lerp(backdrop, tint, tintStrength * (0.7 + thickness * 0.3));
-    material += accent * edge * edgeHighlight;
+    float lightFacing = saturate(dot(normal, normalize(float2(-0.45, -0.90))));
+    float3 rimColor = lerp(accent, 1.0, 0.55);
+    material += rimColor * edge * (0.22 + lightFacing * 0.78) * edgeHighlight;
 
     float outside = max(sdf, 0.0);
     float shadow = exp(-outside / shadowSpread) * shadowStrength * (1.0 - mask);
@@ -166,7 +209,10 @@ float4 ShapePS(VertexOutput input) : SV_Target
     float3 color = uData[2].rgb;
     float2 offset = uData[3].xy;
     float sdf = RoundedRectSdf(input.position.xy, rectMin + offset, rectMax + offset, radius);
-    float alpha = exp(-max(sdf, 0.0) * max(sdf, 0.0) / (2.0 * sigma * sigma)) * strength;
+    float outside = max(sdf, 0.0);
+    float outsideMask = smoothstep(-0.5, 0.5, sdf);
+    float alpha = exp(-outside * outside / (2.0 * sigma * sigma)) *
+                  outsideMask * strength * uData[2].a;
     clip(alpha - 0.001);
     return float4(color * alpha, alpha);
 }
@@ -231,6 +277,7 @@ float4 BloomCompositePS(VertexOutput input) : SV_Target
             constants.values[8] = color.r;
             constants.values[9] = color.g;
             constants.values[10] = color.b;
+            constants.values[11] = color.a;
             constants.values[12] = offset.x;
             constants.values[13] = offset.y;
             return constants;

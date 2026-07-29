@@ -26,7 +26,9 @@ serially on their creation thread.
 
 ```text
 components/ImGuiVectorUI/  Standalone component, public API, backends and tests
+apps/Dx11Host/             Win32/DX11 example host
 apps/Dx12Host/             Win32/DX12 example host and its runtime assets
+apps/VulkanHost/           Win32/Vulkan example host
 tests/package-consumer/    Minimal installed-package consumer
 third_party/imgui/         Workspace-provided Dear ImGui dependency
 ```
@@ -56,12 +58,25 @@ Useful switches are `-NoDemo`, `-NoTests`, `-Vulkan`, `-ComponentOnly` and
 `-CMakeArguments '-DNAME=VALUE'`. `-VerifyPackage` builds the independent consumer
 against the installed package and requires `-InstallPrefix`.
 
+The default Windows demo build creates the DX11 and DX12 hosts. To build all three
+hosts, set `VULKAN_SDK` and enable Vulkan:
+
+```powershell
+$env:VULKAN_SDK = 'D:\Develop_Environments\VulkanSDK\1.4.357.0'
+.\build-cmake.ps1 -Clean -Vulkan
+```
+
+The executables are named `ImGuiVectorUIDemoDX11`, `ImGuiVectorUIDemo` (DX12), and
+`ImGuiVectorUIDemoVulkan`. The Vulkan target copies its generated SPIR-V shaders into
+the runtime `shaders/` directory automatically.
+
 On a normally registered development environment, standard CMake commands remain
 available:
 
 ```powershell
 cmake -S . -B build `
   -DIVUI_BUILD_DEMO=ON `
+  -DIVUI_BUILD_DX11_DEMO=ON `
   -DIVUI_BUILD_DX11_EFFECTS=ON `
   -DIVUI_BUILD_DX12_EFFECTS=ON
 cmake --build build --config Release

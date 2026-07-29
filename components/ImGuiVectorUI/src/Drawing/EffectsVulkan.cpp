@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <exception>
 #include <filesystem>
@@ -14,7 +15,7 @@ namespace IVUI::Vulkan
 {
     struct EffectShaderLibrary::Impl
     {
-        std::array<std::vector<std::uint32_t>, 5> binaries;
+        std::array<std::vector<std::uint32_t>, 7> binaries;
     };
 
     std::unique_ptr<EffectShaderLibrary> EffectShaderLibrary::Load(
@@ -29,8 +30,10 @@ namespace IVUI::Vulkan
             }
             auto impl = std::make_unique<Impl>();
             constexpr const char* names[] = {
-                "effects.vert.spv", "effects_blur.frag.spv", "effects_material.frag.spv",
-                "effects_shape.frag.spv", "effects_bloom.frag.spv"};
+                "effects.vert.spv", "effects_background.frag.spv",
+                "effects_blur.frag.spv", "effects_material.frag.spv",
+                "effects_shape.frag.spv", "effects_bloom.frag.spv",
+                "effects_composite.frag.spv"};
             for (std::size_t index = 0; index < std::size(names); ++index)
             {
                 const auto path = std::filesystem::path(directory) / names[index];
@@ -77,7 +80,8 @@ namespace IVUI::Vulkan
             const auto& binary = impl_->binaries[index];
             return ShaderBinary{binary.data(), binary.size() * sizeof(std::uint32_t)};
         };
-        return {shader(0), shader(1), shader(2), shader(3), shader(4)};
+        return {shader(0), shader(1), shader(2), shader(3), shader(4), shader(5),
+                shader(6)};
     }
 
     namespace
@@ -105,6 +109,7 @@ namespace IVUI::Vulkan
             constants.values[8] = color.r;
             constants.values[9] = color.g;
             constants.values[10] = color.b;
+            constants.values[11] = color.a;
             constants.values[12] = offset.x;
             constants.values[13] = offset.y;
             return constants;
@@ -125,11 +130,16 @@ namespace IVUI::Vulkan
             Image source{};
             Image ping{};
             Image pong{};
+            VkFramebuffer sourceFramebuffer = VK_NULL_HANDLE;
             VkFramebuffer pingFramebuffer = VK_NULL_HANDLE;
             VkFramebuffer pongFramebuffer = VK_NULL_HANDLE;
+            VkFramebuffer targetFramebuffer = VK_NULL_HANDLE;
+            VkImageView targetView = VK_NULL_HANDLE;
             std::array<VkDescriptorSet, 3> descriptorSets{};
             bool sourceInitialized = false;
             bool prepared = false;
+            bool captureValid = false;
+            float captureSigma = -1.0f;
         };
 
         explicit Impl(const EffectRendererCreateInfo& info) : createInfo(info) {}
@@ -141,23 +151,36 @@ namespace IVUI::Vulkan
         VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
         VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
         VkRenderPass offscreenRenderPass = VK_NULL_HANDLE;
+        VkRenderPass loadRenderPass = VK_NULL_HANDLE;
+        VkPipeline backgroundOffscreenPipeline = VK_NULL_HANDLE;
+        VkPipeline backgroundMainPipeline = VK_NULL_HANDLE;
         VkPipeline blurPipeline = VK_NULL_HANDLE;
         VkPipeline materialPipeline = VK_NULL_HANDLE;
         VkPipeline shapePipeline = VK_NULL_HANDLE;
-        VkPipeline bloomPipeline = VK_NULL_HANDLE;
+        VkPipeline bloomFilterPipeline = VK_NULL_HANDLE;
+        VkPipeline bloomCompositePipeline = VK_NULL_HANDLE;
         std::vector<FrameResources> frames;
         EffectExtent resourceExtent{};
         bool frameActive = false;
+        bool renderPassActive = false;
         std::string error;
 
         ~Impl()
         {
             DestroyResources();
             const VkDevice device = createInfo.device;
-            if (bloomPipeline) vkDestroyPipeline(device, bloomPipeline, createInfo.allocator);
+            if (bloomCompositePipeline)
+                vkDestroyPipeline(device, bloomCompositePipeline, createInfo.allocator);
+            if (bloomFilterPipeline)
+                vkDestroyPipeline(device, bloomFilterPipeline, createInfo.allocator);
             if (shapePipeline) vkDestroyPipeline(device, shapePipeline, createInfo.allocator);
             if (materialPipeline) vkDestroyPipeline(device, materialPipeline, createInfo.allocator);
             if (blurPipeline) vkDestroyPipeline(device, blurPipeline, createInfo.allocator);
+            if (backgroundMainPipeline)
+                vkDestroyPipeline(device, backgroundMainPipeline, createInfo.allocator);
+            if (backgroundOffscreenPipeline)
+                vkDestroyPipeline(device, backgroundOffscreenPipeline, createInfo.allocator);
+            if (loadRenderPass) vkDestroyRenderPass(device, loadRenderPass, createInfo.allocator);
             if (offscreenRenderPass) vkDestroyRenderPass(device, offscreenRenderPass, createInfo.allocator);
             if (pipelineLayout) vkDestroyPipelineLayout(device, pipelineLayout, createInfo.allocator);
             if (descriptorPool) vkDestroyDescriptorPool(device, descriptorPool, createInfo.allocator);
@@ -200,13 +223,15 @@ namespace IVUI::Vulkan
         {
             if (createInfo.physicalDevice == VK_NULL_HANDLE || createInfo.device == VK_NULL_HANDLE ||
                 createInfo.targetFormat == VK_FORMAT_UNDEFINED || createInfo.renderPass == VK_NULL_HANDLE ||
-                createInfo.framesInFlight == 0 || !ValidShader(createInfo.shaders.fullscreenVertex) ||
-                !ValidShader(createInfo.shaders.blurFragment) ||
-                !ValidShader(createInfo.shaders.materialFragment) ||
-                 !ValidShader(createInfo.shaders.shapeFragment) ||
-                 !ValidShader(createInfo.shaders.bloomFragment))
+                 createInfo.framesInFlight == 0 || !ValidShader(createInfo.shaders.fullscreenVertex) ||
+                 !ValidShader(createInfo.shaders.backgroundFragment) ||
+                 !ValidShader(createInfo.shaders.blurFragment) ||
+                 !ValidShader(createInfo.shaders.materialFragment) ||
+                  !ValidShader(createInfo.shaders.shapeFragment) ||
+                  !ValidShader(createInfo.shaders.bloomFragment) ||
+                  !ValidShader(createInfo.shaders.compositeFragment))
             {
-                error = "Vulkan effects require a device, render pass, format and five SPIR-V shaders.";
+                error = "Vulkan effects require a device, render pass, format and seven SPIR-V shaders.";
                 return false;
             }
 
@@ -282,8 +307,40 @@ namespace IVUI::Vulkan
             renderPassInfo.dependencyCount = 2;
             renderPassInfo.pDependencies = dependencies;
             if (!Check(vkCreateRenderPass(createInfo.device, &renderPassInfo, createInfo.allocator,
-                                          &offscreenRenderPass),
-                       "Creating the Vulkan effect offscreen render pass failed."))
+                                           &offscreenRenderPass),
+                        "Creating the Vulkan effect offscreen render pass failed."))
+                return false;
+
+            VkAttachmentDescription loadAttachment{};
+            loadAttachment.format = createInfo.targetFormat;
+            loadAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+            loadAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+            loadAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            loadAttachment.initialLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+            loadAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+            VkAttachmentReference loadColorReference{
+                0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+            VkSubpassDescription loadSubpass{};
+            loadSubpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+            loadSubpass.colorAttachmentCount = 1;
+            loadSubpass.pColorAttachments = &loadColorReference;
+            VkSubpassDependency loadDependency{};
+            loadDependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+            loadDependency.dstSubpass = 0;
+            loadDependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            loadDependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            loadDependency.srcAccessMask = 0;
+            loadDependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            VkRenderPassCreateInfo loadPassInfo{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
+            loadPassInfo.attachmentCount = 1;
+            loadPassInfo.pAttachments = &loadAttachment;
+            loadPassInfo.subpassCount = 1;
+            loadPassInfo.pSubpasses = &loadSubpass;
+            loadPassInfo.dependencyCount = 1;
+            loadPassInfo.pDependencies = &loadDependency;
+            if (!Check(vkCreateRenderPass(createInfo.device, &loadPassInfo,
+                                          createInfo.allocator, &loadRenderPass),
+                       "Creating the Vulkan effect load render pass failed."))
                 return false;
 
             VkDescriptorPoolSize poolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -377,32 +434,46 @@ namespace IVUI::Vulkan
         bool CreatePipelines()
         {
             VkShaderModule vertex = CreateShaderModule(createInfo.shaders.fullscreenVertex);
+            VkShaderModule background = CreateShaderModule(createInfo.shaders.backgroundFragment);
             VkShaderModule blur = CreateShaderModule(createInfo.shaders.blurFragment);
             VkShaderModule material = CreateShaderModule(createInfo.shaders.materialFragment);
             VkShaderModule shape = CreateShaderModule(createInfo.shaders.shapeFragment);
             VkShaderModule bloom = CreateShaderModule(createInfo.shaders.bloomFragment);
-            if (!vertex || !blur || !material || !shape || !bloom)
+            VkShaderModule composite = CreateShaderModule(createInfo.shaders.compositeFragment);
+            if (!vertex || !background || !blur || !material || !shape || !bloom || !composite)
             {
+                if (composite) vkDestroyShaderModule(createInfo.device, composite, createInfo.allocator);
                 if (bloom) vkDestroyShaderModule(createInfo.device, bloom, createInfo.allocator);
                 if (shape) vkDestroyShaderModule(createInfo.device, shape, createInfo.allocator);
                 if (material) vkDestroyShaderModule(createInfo.device, material, createInfo.allocator);
                 if (blur) vkDestroyShaderModule(createInfo.device, blur, createInfo.allocator);
+                if (background) vkDestroyShaderModule(createInfo.device, background, createInfo.allocator);
                 if (vertex) vkDestroyShaderModule(createInfo.device, vertex, createInfo.allocator);
                 return false;
             }
+            backgroundOffscreenPipeline = CreatePipeline(
+                vertex, background, offscreenRenderPass, 0, false);
+            backgroundMainPipeline = CreatePipeline(
+                vertex, background, createInfo.renderPass, createInfo.subpass, false);
             blurPipeline = CreatePipeline(vertex, blur, offscreenRenderPass, 0, false);
             materialPipeline = CreatePipeline(vertex, material, createInfo.renderPass,
                                               createInfo.subpass, true);
             shapePipeline = CreatePipeline(vertex, shape, createInfo.renderPass,
-                                            createInfo.subpass, true);
-            bloomPipeline = CreatePipeline(vertex, bloom, createInfo.renderPass,
-                                            createInfo.subpass, true, true);
+                                             createInfo.subpass, true);
+            bloomFilterPipeline = CreatePipeline(
+                vertex, bloom, offscreenRenderPass, 0, false);
+            bloomCompositePipeline = CreatePipeline(
+                vertex, composite, createInfo.renderPass, createInfo.subpass, true, true);
+            vkDestroyShaderModule(createInfo.device, composite, createInfo.allocator);
             vkDestroyShaderModule(createInfo.device, bloom, createInfo.allocator);
             vkDestroyShaderModule(createInfo.device, shape, createInfo.allocator);
             vkDestroyShaderModule(createInfo.device, material, createInfo.allocator);
             vkDestroyShaderModule(createInfo.device, blur, createInfo.allocator);
+            vkDestroyShaderModule(createInfo.device, background, createInfo.allocator);
             vkDestroyShaderModule(createInfo.device, vertex, createInfo.allocator);
-            return blurPipeline && materialPipeline && shapePipeline && bloomPipeline;
+            return backgroundOffscreenPipeline && backgroundMainPipeline && blurPipeline &&
+                   materialPipeline && shapePipeline && bloomFilterPipeline &&
+                   bloomCompositePipeline;
         }
 
         void DestroyImage(Image& image)
@@ -417,6 +488,12 @@ namespace IVUI::Vulkan
         {
             for (auto& resources : frames)
             {
+                if (resources.targetFramebuffer)
+                    vkDestroyFramebuffer(createInfo.device, resources.targetFramebuffer,
+                                         createInfo.allocator);
+                if (resources.sourceFramebuffer)
+                    vkDestroyFramebuffer(createInfo.device, resources.sourceFramebuffer,
+                                         createInfo.allocator);
                 if (resources.pingFramebuffer)
                     vkDestroyFramebuffer(createInfo.device, resources.pingFramebuffer, createInfo.allocator);
                 if (resources.pongFramebuffer)
@@ -480,14 +557,19 @@ namespace IVUI::Vulkan
             if (!frames.empty() && frames[0].source.image && resourceExtent.width == extent.width &&
                 resourceExtent.height == extent.height)
                 return true;
+            if (resourceExtent.width != 0 && resourceExtent.height != 0 &&
+                !Check(vkDeviceWaitIdle(createInfo.device),
+                       "Waiting for Vulkan effect resources before resizing failed."))
+                return false;
             DestroyResources();
             vkResetDescriptorPool(createInfo.device, descriptorPool, 0);
             resourceExtent = extent;
             frames.resize(createInfo.framesInFlight);
             for (auto& resources : frames)
             {
-                if (!CreateImage(VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                                 resources.source) ||
+                if (!CreateImage(VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                                     VK_IMAGE_USAGE_SAMPLED_BIT,
+                                  resources.source) ||
                     !CreateImage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                                  resources.ping) ||
                     !CreateImage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
@@ -499,6 +581,12 @@ namespace IVUI::Vulkan
                 framebufferInfo.width = extent.width;
                 framebufferInfo.height = extent.height;
                 framebufferInfo.layers = 1;
+                framebufferInfo.pAttachments = &resources.source.view;
+                if (!Check(vkCreateFramebuffer(createInfo.device, &framebufferInfo,
+                                                createInfo.allocator,
+                                                &resources.sourceFramebuffer),
+                           "Creating a Vulkan effect framebuffer failed."))
+                    return false;
                 framebufferInfo.pAttachments = &resources.ping.view;
                 if (!Check(vkCreateFramebuffer(createInfo.device, &framebufferInfo,
                                                 createInfo.allocator, &resources.pingFramebuffer),
@@ -538,6 +626,39 @@ namespace IVUI::Vulkan
             return true;
         }
 
+        bool EnsureTargetFramebuffer(FrameResources& resources, VkImageView targetView)
+        {
+            if (targetView == VK_NULL_HANDLE)
+            {
+                error = "Vulkan effects require a target image view.";
+                return false;
+            }
+            if (resources.targetFramebuffer != VK_NULL_HANDLE &&
+                resources.targetView == targetView)
+                return true;
+            if (resources.targetFramebuffer != VK_NULL_HANDLE)
+            {
+                if (!Check(vkDeviceWaitIdle(createInfo.device),
+                           "Waiting before replacing the Vulkan target framebuffer failed."))
+                    return false;
+                vkDestroyFramebuffer(createInfo.device, resources.targetFramebuffer,
+                                     createInfo.allocator);
+            }
+            VkFramebufferCreateInfo info{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+            info.renderPass = loadRenderPass;
+            info.attachmentCount = 1;
+            info.pAttachments = &targetView;
+            info.width = resourceExtent.width;
+            info.height = resourceExtent.height;
+            info.layers = 1;
+            if (!Check(vkCreateFramebuffer(createInfo.device, &info, createInfo.allocator,
+                                           &resources.targetFramebuffer),
+                       "Creating the Vulkan target framebuffer failed."))
+                return false;
+            resources.targetView = targetView;
+            return true;
+        }
+
         void ImageBarrier(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout oldLayout,
                           VkImageLayout newLayout, VkAccessFlags sourceAccess,
                           VkAccessFlags destinationAccess, VkPipelineStageFlags sourceStage,
@@ -567,7 +688,8 @@ namespace IVUI::Vulkan
             vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
         }
 
-        void DrawOffscreen(VkFramebuffer framebuffer, VkDescriptorSet sourceSet,
+        void DrawOffscreen(VkFramebuffer framebuffer, VkPipeline pipeline,
+                           VkDescriptorSet sourceSet,
                            const EffectConstants& constants)
         {
             VkRenderPassBeginInfo begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
@@ -576,13 +698,122 @@ namespace IVUI::Vulkan
             begin.renderArea.extent = {frame.extent.width, frame.extent.height};
             vkCmdBeginRenderPass(frame.commandBuffer, &begin, VK_SUBPASS_CONTENTS_INLINE);
             SetViewport(frame.commandBuffer);
-            vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, blurPipeline);
-            vkCmdBindDescriptorSets(frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                    pipelineLayout, 0, 1, &sourceSet, 0, nullptr);
+            vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+            if (sourceSet != VK_NULL_HANDLE)
+                vkCmdBindDescriptorSets(frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                        pipelineLayout, 0, 1, &sourceSet, 0, nullptr);
             vkCmdPushConstants(frame.commandBuffer, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT,
                                0, kPushConstantSize, constants.values.data());
             vkCmdDraw(frame.commandBuffer, 3, 1, 0, 0);
             vkCmdEndRenderPass(frame.commandBuffer);
+        }
+
+        void BlurSource(FrameResources& resources, float sigma)
+        {
+            DrawOffscreen(resources.pingFramebuffer, blurPipeline,
+                          resources.descriptorSets[0],
+                          MakeBlurEffectConstants(frame.extent, {1.0f, 0.0f}, sigma));
+            DrawOffscreen(resources.pongFramebuffer, blurPipeline,
+                          resources.descriptorSets[1],
+                          MakeBlurEffectConstants(frame.extent, {0.0f, 1.0f}, sigma));
+        }
+
+        void BeginLoadPass(FrameResources& resources)
+        {
+            VkRenderPassBeginInfo begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+            begin.renderPass = loadRenderPass;
+            begin.framebuffer = resources.targetFramebuffer;
+            begin.renderArea.extent = {frame.extent.width, frame.extent.height};
+            vkCmdBeginRenderPass(frame.commandBuffer, &begin, VK_SUBPASS_CONTENTS_INLINE);
+            renderPassActive = true;
+            SetViewport(frame.commandBuffer);
+        }
+
+        bool CaptureCurrentTarget(FrameResources& resources)
+        {
+            if (!renderPassActive || frame.targetImage == VK_NULL_HANDLE)
+            {
+                error = "Vulkan effect capture requires an active target render pass.";
+                return false;
+            }
+            vkCmdEndRenderPass(frame.commandBuffer);
+            renderPassActive = false;
+
+            ImageBarrier(frame.commandBuffer, frame.targetImage,
+                         VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                         VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                         VK_ACCESS_TRANSFER_READ_BIT,
+                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT);
+            ImageBarrier(frame.commandBuffer, resources.source.image,
+                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                         VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT);
+            VkImageCopy copy{};
+            copy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            copy.srcSubresource.layerCount = 1;
+            copy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            copy.dstSubresource.layerCount = 1;
+            copy.extent = {frame.extent.width, frame.extent.height, 1};
+            vkCmdCopyImage(frame.commandBuffer, frame.targetImage,
+                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           resources.source.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                           1, &copy);
+            ImageBarrier(frame.commandBuffer, resources.source.image,
+                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                         VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+            ImageBarrier(frame.commandBuffer, frame.targetImage,
+                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                         VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                         VK_ACCESS_TRANSFER_READ_BIT,
+                         VK_ACCESS_COLOR_ATTACHMENT_READ_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+            resources.captureValid = true;
+            return true;
+        }
+
+        bool CanCaptureTarget() const
+        {
+            return frame.allowTargetCapture && createInfo.subpass == 0 &&
+                   frame.targetLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        }
+
+        bool CaptureAndBlur(FrameResources& resources, float sigma)
+        {
+            if (!CaptureCurrentTarget(resources))
+                return false;
+            BlurSource(resources, sigma);
+            BeginLoadPass(resources);
+            resources.captureSigma = sigma;
+            return true;
+        }
+
+        bool RenderBloom(FrameResources& resources, const BloomEffectParams& bloom)
+        {
+            if (!CaptureCurrentTarget(resources))
+                return false;
+            const EffectConstants constants = MakeBloomEffectConstants(bloom, frame.extent);
+            DrawOffscreen(resources.pingFramebuffer, bloomFilterPipeline,
+                          resources.descriptorSets[0], constants);
+            DrawOffscreen(resources.pongFramebuffer, blurPipeline,
+                          resources.descriptorSets[1],
+                          MakeBlurEffectConstants(frame.extent, {1.0f, 0.0f},
+                                                  bloom.sigma));
+            DrawOffscreen(resources.sourceFramebuffer, blurPipeline,
+                          resources.descriptorSets[2],
+                          MakeBlurEffectConstants(frame.extent, {0.0f, 1.0f},
+                                                  bloom.sigma));
+            BeginLoadPass(resources);
+            DrawCallback(bloomCompositePipeline, resources.descriptorSets[0], constants);
+            resources.captureValid = false;
+            return true;
         }
 
         bool Prepare(const EffectRendererFrameInfo& info)
@@ -591,54 +822,74 @@ namespace IVUI::Vulkan
             if (!EnsureResources(info.extent))
                 return false;
             FrameResources& resources = frames[info.frameIndex % frames.size()];
-            resources.prepared = false;
-            VkImage captureImage = info.backdropImage ? info.backdropImage : info.targetImage;
-            VkImageLayout captureLayout = info.backdropImage ? info.backdropLayout : info.targetLayout;
-            if (captureImage == VK_NULL_HANDLE)
-            {
-                error = "Vulkan PrepareFrame requires a target or backdrop image.";
+            if (info.allowTargetCapture &&
+                !EnsureTargetFramebuffer(resources, info.targetView))
                 return false;
+            resources.prepared = false;
+            resources.captureValid = false;
+            resources.captureSigma = -1.0f;
+            if (info.renderBackground)
+            {
+                DrawOffscreen(resources.sourceFramebuffer, backgroundOffscreenPipeline,
+                              VK_NULL_HANDLE,
+                              MakeBackgroundEffectConstants(
+                                  info.background, info.extent, info.timeSeconds));
+                resources.sourceInitialized = true;
             }
-            ImageBarrier(info.commandBuffer, captureImage, captureLayout,
-                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                         captureLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-                             ? VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT : VK_ACCESS_SHADER_READ_BIT,
-                         VK_ACCESS_TRANSFER_READ_BIT,
-                         VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-            ImageBarrier(info.commandBuffer, resources.source.image,
-                         resources.sourceInitialized ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-                                                     : VK_IMAGE_LAYOUT_UNDEFINED,
-                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                         resources.sourceInitialized ? VK_ACCESS_SHADER_READ_BIT : 0,
-                         VK_ACCESS_TRANSFER_WRITE_BIT,
-                         resources.sourceInitialized ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
-                                                     : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT);
-            VkImageCopy copy{};
-            copy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            copy.srcSubresource.layerCount = 1;
-            copy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            copy.dstSubresource.layerCount = 1;
-            copy.extent = {info.extent.width, info.extent.height, 1};
-            vkCmdCopyImage(info.commandBuffer, captureImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                           resources.source.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
-            ImageBarrier(info.commandBuffer, resources.source.image,
-                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT,
-                         VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-            ImageBarrier(info.commandBuffer, captureImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                         captureLayout, VK_ACCESS_TRANSFER_READ_BIT,
-                         captureLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-                             ? VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT : VK_ACCESS_SHADER_READ_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
-            resources.sourceInitialized = true;
-            DrawOffscreen(resources.pingFramebuffer, resources.descriptorSets[0],
-                          MakeBlurEffectConstants(info.extent, {1.0f, 0.0f},
-                                                  info.backdropBlurSigma));
-            DrawOffscreen(resources.pongFramebuffer, resources.descriptorSets[1],
-                          MakeBlurEffectConstants(info.extent, {0.0f, 1.0f},
-                                                  info.backdropBlurSigma));
+            else
+            {
+                VkImage captureImage = info.backdropImage ? info.backdropImage : info.targetImage;
+                VkImageLayout captureLayout = info.backdropImage ? info.backdropLayout : info.targetLayout;
+                if (!info.backdropImage && info.targetLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+                {
+                    error = "Vulkan effects require renderBackground or an explicit current-frame backdrop.";
+                    return false;
+                }
+                if (captureImage == VK_NULL_HANDLE)
+                {
+                    error = "Vulkan PrepareFrame requires a target or backdrop image.";
+                    return false;
+                }
+                ImageBarrier(info.commandBuffer, captureImage, captureLayout,
+                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                             captureLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+                                 ? VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT : VK_ACCESS_SHADER_READ_BIT,
+                             VK_ACCESS_TRANSFER_READ_BIT,
+                             VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+                ImageBarrier(info.commandBuffer, resources.source.image,
+                             resources.sourceInitialized ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                                                         : VK_IMAGE_LAYOUT_UNDEFINED,
+                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                             resources.sourceInitialized ? VK_ACCESS_SHADER_READ_BIT : 0,
+                             VK_ACCESS_TRANSFER_WRITE_BIT,
+                             resources.sourceInitialized ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+                                                         : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT);
+                VkImageCopy copy{};
+                copy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                copy.srcSubresource.layerCount = 1;
+                copy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                copy.dstSubresource.layerCount = 1;
+                copy.extent = {info.extent.width, info.extent.height, 1};
+                vkCmdCopyImage(info.commandBuffer, captureImage,
+                               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                               resources.source.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               1, &copy);
+                ImageBarrier(info.commandBuffer, resources.source.image,
+                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                             VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+                ImageBarrier(info.commandBuffer, captureImage,
+                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, captureLayout,
+                             VK_ACCESS_TRANSFER_READ_BIT,
+                             captureLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+                                 ? VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT : VK_ACCESS_SHADER_READ_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+                resources.sourceInitialized = true;
+            }
+            BlurSource(resources, info.backdropBlurSigma);
             resources.prepared = true;
             return true;
         }
@@ -648,8 +899,9 @@ namespace IVUI::Vulkan
         {
             SetViewport(frame.commandBuffer);
             vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-            vkCmdBindDescriptorSets(frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                    pipelineLayout, 0, 1, &sourceSet, 0, nullptr);
+            if (sourceSet != VK_NULL_HANDLE)
+                vkCmdBindDescriptorSets(frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                        pipelineLayout, 0, 1, &sourceSet, 0, nullptr);
             vkCmdPushConstants(frame.commandBuffer, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT,
                                0, kPushConstantSize, constants.values.data());
             vkCmdDraw(frame.commandBuffer, 3, 1, 0, 0);
@@ -666,6 +918,9 @@ namespace IVUI::Vulkan
             {
             case EffectId::BackdropBlur:
             {
+                if (CanCaptureTarget() &&
+                    !CaptureAndBlur(resources, request.blur.sigma))
+                    break;
                 GlassEffectParams glass{};
                 glass.bounds = request.blur.bounds;
                 glass.opacity = request.blur.opacity;
@@ -679,25 +934,33 @@ namespace IVUI::Vulkan
                 break;
             }
             case EffectId::Glass:
+                if (CanCaptureTarget() &&
+                    (!resources.captureValid ||
+                     std::fabs(resources.captureSigma - request.glass.blurSigma) > 0.001f) &&
+                    !CaptureAndBlur(resources, request.glass.blurSigma))
+                    break;
                 DrawCallback(materialPipeline, resources.descriptorSets[2],
                              MakeGlassEffectConstants(request.glass, frame.extent,
-                                                      frame.timeSeconds));
+                                                       frame.timeSeconds));
+                resources.captureValid = false;
                 break;
             case EffectId::Shadow:
                 DrawCallback(shapePipeline, resources.descriptorSets[2],
                              MakeShapeConstants(request.shadow.bounds, request.shadow.rounding,
                                                 request.shadow.strength, request.shadow.sigma,
-                                                request.shadow.color, request.shadow.offset));
+                                                 request.shadow.color, request.shadow.offset));
+                resources.captureValid = false;
                 break;
             case EffectId::Glow:
                 DrawCallback(shapePipeline, resources.descriptorSets[2],
                              MakeShapeConstants(request.glow.bounds, request.glow.rounding,
                                                 request.glow.strength, request.glow.sigma,
-                                                request.glow.color, {}));
+                                                 request.glow.color, {}));
+                resources.captureValid = false;
                 break;
             case EffectId::Bloom:
-                DrawCallback(bloomPipeline, resources.descriptorSets[2],
-                             MakeBloomEffectConstants(request.bloom, frame.extent));
+                if (CanCaptureTarget())
+                    RenderBloom(resources, request.bloom);
                 break;
             default:
                 break;
@@ -752,6 +1015,14 @@ namespace IVUI::Vulkan
             return false;
         impl_->frame = frameInfo;
         impl_->frameActive = true;
+        impl_->renderPassActive = true;
+        if (frameInfo.renderBackground)
+        {
+            impl_->DrawCallback(
+                impl_->backgroundMainPipeline, VK_NULL_HANDLE,
+                MakeBackgroundEffectConstants(
+                    frameInfo.background, frameInfo.extent, frameInfo.timeSeconds));
+        }
         return true;
     }
 
@@ -759,7 +1030,15 @@ namespace IVUI::Vulkan
     {
         if (impl_)
         {
+            if (impl_->frameActive && impl_->frame.renderBloom &&
+                impl_->CanCaptureTarget())
+            {
+                auto& resources = impl_->frames[
+                    impl_->frame.frameIndex % impl_->frames.size()];
+                impl_->RenderBloom(resources, impl_->frame.bloom);
+            }
             impl_->frameActive = false;
+            impl_->renderPassActive = false;
             impl_->frame = {};
         }
     }

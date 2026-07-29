@@ -11,6 +11,8 @@
 
 namespace IVUI::DX11
 {
+    using BackgroundShaderParams = IVUI::BackgroundShaderParams;
+
     struct EffectRendererCreateInfo
     {
         ID3D11Device* device = nullptr;
@@ -24,6 +26,8 @@ namespace IVUI::DX11
         EffectExtent extent{};
         float timeSeconds = 0.0f;
         ID3D11Texture2D* backdrop = nullptr;
+        bool renderBackground = false;
+        BackgroundShaderParams background{};
     };
 
     class EffectRenderer final : public IEffectRenderer

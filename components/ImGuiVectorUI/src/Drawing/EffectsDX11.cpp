@@ -28,11 +28,45 @@ float Sdf(float2 p, float2 mn, float2 mx, float r) {
     float2 c = (mn + mx) * 0.5, h = max((mx - mn) * 0.5, 0.0); r = min(max(r, 0.0), min(h.x, h.y));
     float2 q = abs(p - c) - h + r; return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
 }
+float Hash21(float2 p) {
+    p=frac(p*float2(123.34,345.45)); p+=dot(p,p+34.345); return frac(p.x*p.y);
+}
+float SmoothNoise21(float2 p) {
+    float2 cell=floor(p), local=frac(p), curve=local*local*(3.0-2.0*local);
+    float a=Hash21(cell), b=Hash21(cell+float2(1,0)), c=Hash21(cell+float2(0,1)), d=Hash21(cell+float2(1,1));
+    return lerp(lerp(a,b,curve.x),lerp(c,d,curve.x),curve.y);
+}
 float4 BlurPS(VSOut i) : SV_Target {
     float4 sum = 0.0; float weights = 0.0; float sigma = max(uData[1].x, 0.5);
     [unroll] for (int x = -16; x <= 16; ++x) { float d = (float)x; float w = exp(-0.5 * d * d / (sigma * sigma));
         sum += SourceTexture.Sample(LinearClamp, i.uv + uData[0].zw * uData[0].xy * d) * w; weights += w; }
     return sum / max(weights, 0.0001);
+}
+float LineMask(float2 coordinate) {
+    float2 width = max(fwidth(coordinate), 0.001);
+    float2 distanceToLine = abs(frac(coordinate - 0.5) - 0.5) / width;
+    return 1.0 - saturate(min(distanceToLine.x, distanceToLine.y));
+}
+float4 BackgroundPS(VSOut i) : SV_Target {
+    float3 topColor=uData[0].rgb, bottomColor=uData[1].rgb;
+    float3 accent=uData[2].rgb, secondary=uData[3].rgb;
+    float time=uData[4].x*uData[5].z, gridSize=max(uData[4].y,12.0);
+    float gridStrength=saturate(uData[4].z), vignetteStrength=saturate(uData[4].w);
+    float2 resolution=max(uData[5].xy,1.0); float intensity=max(uData[5].w,0.0);
+    float2 uv=i.uv, centered=uv*2.0-1.0; centered.x*=resolution.x/resolution.y;
+    float3 color=lerp(topColor,bottomColor,smoothstep(0.0,1.0,uv.y));
+    float fineGrid=LineMask(i.position.xy/gridSize), majorGrid=LineMask(i.position.xy/(gridSize*5.0));
+    color+=secondary*(fineGrid*gridStrength*0.28+majorGrid*gridStrength*0.68);
+    float waveA=centered.y+0.30+sin(centered.x*2.5+time*0.75)*0.11;
+    float waveB=centered.y-0.20+sin(centered.x*4.1-time*0.58)*0.075;
+    color+=accent*exp(-waveA*waveA*105.0)*0.58*intensity;
+    color+=secondary*exp(-waveB*waveB*155.0)*0.48*intensity;
+    float2 beaconPosition=float2(sin(time*0.42)*0.72,cos(time*0.31)*0.34);
+    float beacon=exp(-dot(centered-beaconPosition,centered-beaconPosition)*11.0);
+    float diagonal=exp(-pow(centered.y+centered.x*0.34-sin(time*0.26)*0.25,2.0)*75.0);
+    color+=accent*beacon*0.52*intensity+lerp(accent,secondary,uv.x)*diagonal*0.20*intensity;
+    float vignette=1.0-smoothstep(0.30,1.48,length(centered));
+    color*=lerp(1.0,vignette,vignetteStrength); return float4(max(color,0.0),1.0);
 }
 float4 GlassPS(VSOut i) : SV_Target {
     float2 mn = uData[0].xy, mx = uData[0].zw; float radius = uData[1].x, opacity = saturate(uData[1].y);
@@ -41,9 +75,22 @@ float4 GlassPS(VSOut i) : SV_Target {
     float mask = 1.0 - smoothstep(-0.5, 1.0, sdf); float edge = mask * (1.0 - smoothstep(0.0, max(uData[3].z, 0.5), abs(sdf)));
     float2 n = float2(Sdf(i.position.xy + float2(1,0), mn,mx,radius)-Sdf(i.position.xy-float2(1,0),mn,mx,radius),
                       Sdf(i.position.xy + float2(0,1), mn,mx,radius)-Sdf(i.position.xy-float2(0,1),mn,mx,radius)); n = normalize(n + 0.0001);
-    float2 sampleUv = clamp(i.uv + uData[7].xy * n * uData[3].y * edge, uData[7].xy * 0.5, 1.0-uData[7].xy*0.5);
-    float3 material = lerp(SourceTexture.Sample(LinearClamp, sampleUv).rgb, tint, tintAmount);
-    material += accent * edge * saturate(uData[3].w); float outside = max(sdf, 0.0);
+    float thickness=saturate(uData[4].x), shapePower=max(uData[4].y,2.0), lensStrength=max(uData[4].z,0.0);
+    float lensBase=max(uData[4].w*2.718281828,1.0001), lensFalloff=max(uData[5].x,0.1);
+    float lensBias=max(uData[5].y,0.0), lensPower=max(uData[5].z,0.1), time=uData[7].z;
+    float2 center=(mn+mx)*0.5, halfSize=max((mx-mn)*0.5,1.0); float lensRadius=max(min(halfSize.x,halfSize.y),1.0);
+    float edgeDistance=saturate(max(-sdf,0.0)/lensRadius), interiorDistance=pow(edgeDistance,2.0/shapePower);
+    float lensCompression=min(saturate(lensStrength*pow(lensBase,-lensFalloff*interiorDistance-lensBias)),0.98);
+    float lensScale=pow(max(1.0-lensCompression,0.02),lensPower);
+    float2 lensOffset=((center+(i.position.xy-center)*lensScale)-i.position.xy)*uData[7].xy;
+    float2 noisePosition=i.position.xy*0.045+float2(time*0.35,-time*0.23);
+    float2 surfaceNoise=float2(SmoothNoise21(noisePosition),SmoothNoise21(noisePosition+19.19))*2.0-1.0;
+    float rimRefraction=max(uData[3].y,0.0)*edge*(0.35+thickness*0.65);
+    float2 sampleUv=i.uv+lensOffset+uData[7].xy*(n*rimRefraction+surfaceNoise*max(uData[5].w,0.0)*(0.25+lensCompression*0.75));
+    sampleUv=clamp(sampleUv,uData[7].xy*0.5,1.0-uData[7].xy*0.5);
+    float3 material = lerp(SourceTexture.Sample(LinearClamp, sampleUv).rgb, tint, tintAmount*(0.7+thickness*0.3));
+    float lightFacing=saturate(dot(n,normalize(float2(-0.45,-0.90))));
+    material += lerp(accent,1.0,0.55)*edge*(0.22+lightFacing*0.78)*saturate(uData[3].w); float outside = max(sdf, 0.0);
     float glow = exp(-outside/max(uData[6].y,0.5))*saturate(uData[6].x)*(1.0-mask);
     float shadow = exp(-outside/max(uData[6].w,0.5))*saturate(uData[6].z)*(1.0-mask);
     float materialAlpha = mask * opacity, alpha = saturate(materialAlpha + glow + shadow); clip(alpha - 0.001);
@@ -51,7 +98,8 @@ float4 GlassPS(VSOut i) : SV_Target {
 }
 float4 ShapePS(VSOut i) : SV_Target {
     float sdf = Sdf(i.position.xy, uData[0].xy + uData[3].xy, uData[0].zw + uData[3].xy, uData[1].x);
-    float sigma = max(uData[1].z, 0.5); float alpha = exp(-max(sdf,0.0)*max(sdf,0.0)/(2.0*sigma*sigma))*saturate(uData[1].y);
+    float sigma=max(uData[1].z,0.5), outside=max(sdf,0.0), outsideMask=smoothstep(-0.5,0.5,sdf);
+    float alpha=exp(-outside*outside/(2.0*sigma*sigma))*outsideMask*saturate(uData[1].y)*uData[2].a;
     clip(alpha - 0.001); return float4(uData[2].rgb * alpha, alpha);
 }
 float4 BloomFilterPS(VSOut i) : SV_Target {
@@ -86,6 +134,7 @@ float4 BloomCompositePS(VSOut i) : SV_Target {
             constants.values[8] = color.r;
             constants.values[9] = color.g;
             constants.values[10] = color.b;
+            constants.values[11] = color.a;
             constants.values[12] = offset.x;
             constants.values[13] = offset.y;
             return constants;
@@ -99,6 +148,7 @@ float4 BloomCompositePS(VSOut i) : SV_Target {
         EffectRendererCreateInfo createInfo{};
         EffectRendererFrameInfo frame{};
         ComPtr<ID3D11VertexShader> vertexShader;
+        ComPtr<ID3D11PixelShader> backgroundShader;
         ComPtr<ID3D11PixelShader> blurShader;
         ComPtr<ID3D11PixelShader> glassShader;
         ComPtr<ID3D11PixelShader> shapeShader;
@@ -170,7 +220,8 @@ float4 BloomCompositePS(VSOut i) : SV_Target {
                 }
                 return true;
             };
-            if (!createPixelShader("BlurPS", blurShader) ||
+            if (!createPixelShader("BackgroundPS", backgroundShader) ||
+                !createPixelShader("BlurPS", blurShader) ||
                 !createPixelShader("GlassPS", glassShader) ||
                 !createPixelShader("ShapePS", shapeShader) ||
                 !createPixelShader("BloomFilterPS", bloomFilterShader) ||
@@ -282,6 +333,18 @@ float4 BloomCompositePS(VSOut i) : SV_Target {
             return false;
         }
 
+        bool RenderBackground()
+        {
+            if (!EnsureResources())
+                return false;
+            SetCommonState();
+            Draw(backgroundShader.Get(), nullptr,
+                 MakeBackgroundEffectConstants(
+                     frame.background, frame.extent, frame.timeSeconds),
+                 frame.targetRtv, opaqueBlend.Get());
+            return true;
+        }
+
         void SetCommonState()
         {
             const D3D11_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(frame.extent.width),
@@ -327,6 +390,7 @@ float4 BloomCompositePS(VSOut i) : SV_Target {
                 frame.deviceContext->OMSetRenderTargets(0, nullptr, nullptr);
                 frame.deviceContext->CopyResource(source.Get(),
                     forceTarget || !frame.backdrop ? frame.target : frame.backdrop);
+                frame.deviceContext->OMSetRenderTargets(1, &frame.targetRtv, nullptr);
                 captured = true;
                 cachedBlurSigma = -1.0f;
                 cachedBlur = nullptr;
@@ -459,6 +523,12 @@ float4 BloomCompositePS(VSOut i) : SV_Target {
         impl_->cachedBlurSigma = -1.0f;
         impl_->cachedBlur = nullptr;
         impl_->frameActive = true;
+        if (frameInfo.renderBackground &&
+            (!impl_->RenderBackground() || !impl_->Capture(true)))
+        {
+            impl_->frameActive = false;
+            return false;
+        }
         return true;
     }
 
