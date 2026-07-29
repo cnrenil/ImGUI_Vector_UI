@@ -1,6 +1,7 @@
 #include "ImGuiVectorUI/Core/DragDrop.h"
 #include "ImGuiVectorUI/Theme/Theme.h"
 #include "ImGuiVectorUI/Drawing/DrawText.h"
+#include "ImGuiVectorUI/Core/Context.h"
 
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -9,8 +10,7 @@
 
 namespace IVUI
 {
-    static const char* kPayload = "IVUI_FEAT";
-    static char g_dropBuf[160];
+    static constexpr const char* kPayload = "IVUI_FEAT";
 
     void DrawDragGhost(const char* name)
     {
@@ -40,14 +40,16 @@ namespace IVUI
 
     static const char* CopyPayload(const ImGuiPayload* p)
     {
-        if (!p)
+        Context* context = GetContext();
+        if (!p || !context)
             return nullptr;
+        auto& buffer = context->dropBuffer;
         size_t n = (size_t)p->DataSize;
-        if (n >= sizeof(g_dropBuf))
-            n = sizeof(g_dropBuf) - 1;
-        memcpy(g_dropBuf, p->Data, n);
-        g_dropBuf[n] = 0;
-        return g_dropBuf;
+        if (n >= buffer.size())
+            n = buffer.size() - 1;
+        memcpy(buffer.data(), p->Data, n);
+        buffer[n] = 0;
+        return buffer.data();
     }
 
     const char* AcceptFeatureDrop()

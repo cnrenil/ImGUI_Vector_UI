@@ -15,5 +15,7 @@ namespace IVUI
      *  @param kb Binding to display and update.
      *  @return True when a key or activation mode changed.
      */
+#ifdef IVUI_INTERNAL_API
     bool KeybindRow(const char* label, Keybind* kb);
+#endif
 }

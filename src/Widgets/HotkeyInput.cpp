@@ -28,7 +28,7 @@ namespace IVUI
         const ImVec2 boxEnd = boxPos + ImVec2(boxW, h);
 
         ImGui::SetCursorScreenPos(boxPos);
-        if (ImGui::InvisibleButton(label, ImVec2(boxW, h)))
+        if (ImGui::InvisibleButton(label, ImVec2(boxW, h), ImGuiButtonFlags_EnableNav))
             a.capturing = true;
 
         bool changed = false;

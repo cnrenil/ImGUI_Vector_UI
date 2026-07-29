@@ -42,12 +42,11 @@ namespace IVUI
         AnimSlot& a = SlotID(id);
         const ImVec4 t = ImGui::ColorConvertU32ToFloat4(target);
         if (!a.initialized) { a.colorVal = t; a.initialized = true; }
-        const float k = ImClamp(DeltaTime() * speed, 0.0f, 1.0f);
+        const float k = EaseValue(0.0f, 1.0f, ImClamp(DeltaTime() * speed, 0.0f, 1.0f), e);
         a.colorVal.x += (t.x - a.colorVal.x) * k;
         a.colorVal.y += (t.y - a.colorVal.y) * k;
         a.colorVal.z += (t.z - a.colorVal.z) * k;
         a.colorVal.w += (t.w - a.colorVal.w) * k;
-        (void)e;
         return ImGui::ColorConvertFloat4ToU32(a.colorVal);
     }
     ImU32 ColorApproach(const char* label, ImU32 target, float speed, EasingType e)

@@ -1,16 +1,15 @@
 #include "ImGuiVectorUI/Core/Id.h"
 #include "ImGuiVectorUI/Core/Context.h"
 
+#include <stdexcept>
+
 namespace IVUI
 {
     AnimSlot& SlotID(ImGuiID id)
     {
         Context* c = GetContext();
         if (c == nullptr)
-        {
-            static AnimSlot dummy;
-            return dummy;
-        }
+            throw std::logic_error("IVUI widget state requires an active UI frame.");
         return c->anim.Get(id, c->frameCount);
     }
 

@@ -20,6 +20,7 @@ namespace IVUI
     };
 
     /// `size` is the icon box diameter; positions scale from it about `center`.
+#ifdef IVUI_INTERNAL_API
     void IconCheck(ImDrawList* draw, ImVec2 center, float size, ImU32 col, float thickness);
     void IconChevron(ImDrawList* draw, ImVec2 center, float size, ImU32 col, float thickness, int dir); ///<  0=down 1=up 2=left 3=right
     void IconCrosshair(ImDrawList* draw, ImVec2 center, float size, ImU32 col, float thickness);
@@ -31,4 +32,5 @@ namespace IVUI
     void IconSliders(ImDrawList* draw, ImVec2 center, float size, ImU32 col, float thickness);
 
     void Icon(ImDrawList* draw, IconType type, ImVec2 center, float size, ImU32 col, float thickness);
+#endif
 }

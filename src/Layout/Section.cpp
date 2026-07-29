@@ -23,7 +23,8 @@ namespace IVUI
         // Keep the header clear of a possible overlay scrollbar.
         const float avail = ImMax(ImGui::GetContentRegionAvail().x - 8.0f * S, 40.0f * S);
 
-        const bool clicked = ImGui::InvisibleButton(label, ImVec2(avail, headerH));
+        const bool clicked = ImGui::InvisibleButton(label, ImVec2(avail, headerH),
+                                                    ImGuiButtonFlags_EnableNav);
         if (clicked)
             *open = !*open;
         const ImVec2 hmin = ImGui::GetItemRectMin();

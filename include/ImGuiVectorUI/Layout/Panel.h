@@ -26,6 +26,7 @@ namespace IVUI
         /** @} */
     };
 
+#ifdef IVUI_INTERNAL_API
     /** @brief Draws a titled panel at @p pos with an animated collapsible body.
      *  @param label Visible title and ImGui ID source.
      *  @param pos Initial screen position.
@@ -39,4 +40,5 @@ namespace IVUI
      *  @param header Optional per-frame interaction input and output structure.
      */
     void Panel(const char* label, ImVec2 pos, ImVec2 maxSize, const std::function<void()>& body, PanelHeader* header, ImGuiWindowFlags flags = 0);
+#endif
 }

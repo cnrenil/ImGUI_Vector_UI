@@ -24,7 +24,7 @@ namespace IVUI
         a.direction = isActive ? 1.0f : -1.0f;
         a.t = ImClamp(a.t + DeltaTime() * 8.0f * a.direction, 0.0f, 1.0f);
 
-        const bool clicked = ImGui::InvisibleButton(label, ImVec2(w, h));
+        const bool clicked = ImGui::InvisibleButton(label, ImVec2(w, h), ImGuiButtonFlags_EnableNav);
         if (clicked)
             *active = index;
         const bool hovered = ImGui::IsItemHovered();

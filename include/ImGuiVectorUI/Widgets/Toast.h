@@ -9,6 +9,7 @@ namespace IVUI
 {
     enum class ToastType { Info, Success, Warning, Error };
 
+#ifdef IVUI_INTERNAL_API
     /** @brief Enqueues a toast; a null @p body creates a title-only notification.
      *  @param type Visual severity and icon.
      *  @param title Primary text.
@@ -22,4 +23,5 @@ namespace IVUI
 
     /** @brief Removes all active toasts immediately. */
     void ClearToasts();
+#endif
 }

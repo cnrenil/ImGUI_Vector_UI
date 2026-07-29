@@ -1,101 +1,367 @@
 /** @file Effects.h
- *  @brief Renderer-independent draw-list bridge for glass backdrops.
+ *  @brief Renderer-independent effect protocol and ImGui draw-list bridge.
  */
 #pragma once
 
-#include "imgui.h"
-
+#include <array>
 #include <cstddef>
+#include <cstdint>
+#include <memory>
 #include <type_traits>
+
+struct ImDrawList;
 
 namespace IVUI
 {
-    /** @brief Screen-space parameters for one glass backdrop. */
-    struct GlassRect
+    enum class EffectId : std::uint32_t
     {
-        ImVec2 min, max;      ///<  rect in screen pixels
-        float  rounding;      ///<  corner radius in pixels
-        float  opacity;       ///<  0..1 fill strength of the glass tint
-        ImU32  tint;          ///<  glass body color (alpha ignored; opacity drives it)
-        float  tintStrength;  ///<  0 = pure backdrop blur, 1 = fully tinted glass
-        ImU32  accent;        ///<  edge-sheen / accent color
-        float  refraction;    ///<  px of backdrop displacement at the material rim
-        float  edgeWidth;     ///<  px width of the refractive rim
-        float  edgeHighlight; ///<  0..1 directional specular rim strength
-        float  thickness;     ///<  0..1 optical thickness of the glass body
-        float  shapePower;    ///<  rounded-edge lens response exponent
-        float  lensStrength;  ///<  exponential lens curve amplitude
-        float  lensBase;      ///<  base of the lens exponential curve
-        float  lensFalloff;   ///<  distance decay of the lens exponential curve
-        float  lensBias;      ///<  rim bias of the lens exponential curve
-        float  lensPower;     ///<  final power applied to the lens scale
-        float  noise;         ///<  px time-varying refraction noise
-        float  glowStrength;  ///<  0..1 outer glow intensity
-        float  glowSpread;    ///<  px falloff distance of the outer glow
-        float  shadowStrength;///<  0..1 drop-shadow intensity
-        float  shadowSpread;  ///<  px falloff distance of the drop shadow
+        BackdropBlur = 1,
+        Glass = 2,
+        Shadow = 3,
+        Glow = 4,
+        Bloom = 5,
+        CustomFirst = 0x00010000u
     };
 
-    /** @brief Host hook invoked from an ImGui draw-list callback at a panel's Z position. */
-    using GlassRenderCallback = void (*)(const GlassRect& rect);
-
-    /** @brief Binary constant layout consumed by EffectsShaderSource().
-     *
-     *  Each entry maps directly to one HLSL @c float4 in @c uData. Hosts must
-     *  upload all 44 floats as 32-bit root constants or an equivalent uniform
-     *  buffer layout.
-     */
-    struct GlassShaderConstants
+    enum class EffectCapabilities : std::uint32_t
     {
-        float values[44]{};
+        None = 0,
+        BackdropCapture = 1u << 0,
+        BackdropBlur = 1u << 1,
+        GlassMaterial = 1u << 2,
+        Shadow = 1u << 3,
+        Glow = 1u << 4,
+        Bloom = 1u << 5
     };
-    static_assert(std::is_standard_layout_v<GlassShaderConstants> &&
-                  std::is_trivially_copyable_v<GlassShaderConstants> &&
-                  sizeof(GlassShaderConstants) == sizeof(float) * 44,
-                  "Glass shader constants must match HLSL float4 uData[11].");
-    /** @brief Installs the host compositor used to render glass at ImGui window depth. */
-    void              SetGlassRenderCallback(GlassRenderCallback callback);
-    /** @brief Inserts a backdrop compositor callback into the current ImGui window.
-     *  @param r Screen-space backdrop parameters.
-     */
-    void SubmitGlass(const GlassRect& r);
 
-    /** @brief Builds constants for one separable Gaussian blur pass.
-     *  @param renderTargetSize Source texture dimensions in pixels.
-     *  @param direction Blur axis, normally (1, 0) or (0, 1).
-     *  @param sigma Gaussian standard deviation in pixels.
-     *  @return Constants compatible with the @c GaussianPS entry point.
-     */
-    GlassShaderConstants MakeGaussianBlurConstants(ImVec2 renderTargetSize, ImVec2 direction, float sigma);
-    /** @brief Builds constants for the opaque host background pass.
-     *  @param renderTargetSize Background dimensions in pixels.
-     *  @param timeSeconds Monotonic animation time in seconds.
-     *  @return Constants compatible with the @c BackgroundPS entry point.
-     */
-    GlassShaderConstants MakeBackgroundConstants(ImVec2 renderTargetSize, float timeSeconds);
-    /** @brief Builds constants for filtering ImGui pixels before blur passes.
-     *  @param colorMax Inclusive per-component color ceiling.
-     *  @param colorMin Inclusive per-component color floor.
-     *  @param averageThreshold Minimum average RGB brightness.
-     *  @param saturationThreshold Minimum RGB chroma; neutral text is excluded.
-     *  @return Constants compatible with the @c FilterPS entry point.
-     */
-    GlassShaderConstants MakeBloomFilterConstants(ImVec4 colorMax, ImVec4 colorMin, float averageThreshold, float saturationThreshold);
-    /** @brief Builds constants for additive bloom compositing of a blurred UI frame.
-     *  @param strength Additive bloom intensity.
-     *  @return Constants compatible with the @c GlowPS entry point.
-     */
-    GlassShaderConstants MakeGlowCompositeConstants(float strength);
-    /** @brief Builds constants for one glass-composite draw.
-     *  @param rect Screen-space glass request to encode.
-     *  @param renderTargetSize Backdrop texture dimensions in pixels.
-     *  @param timeSeconds Monotonic time used for subtle material noise.
-     *  @return Constants compatible with the @c CompositePS entry point.
-     */
-    GlassShaderConstants MakeGlassCompositeConstants(const GlassRect& rect, ImVec2 renderTargetSize, float timeSeconds);
-    /** @brief Returns reusable HLSL for background, Gaussian blur, glass and glow effects.
-     *  @return UTF-8 HLSL source containing the effects pass entry points.
-     */
-    const char* EffectsShaderSource();
+    constexpr EffectCapabilities operator|(EffectCapabilities lhs, EffectCapabilities rhs) noexcept
+    {
+        return static_cast<EffectCapabilities>(static_cast<std::uint32_t>(lhs) |
+                                               static_cast<std::uint32_t>(rhs));
+    }
 
+    constexpr EffectCapabilities operator&(EffectCapabilities lhs, EffectCapabilities rhs) noexcept
+    {
+        return static_cast<EffectCapabilities>(static_cast<std::uint32_t>(lhs) &
+                                               static_cast<std::uint32_t>(rhs));
+    }
+
+    constexpr EffectCapabilities& operator|=(EffectCapabilities& lhs, EffectCapabilities rhs) noexcept
+    {
+        lhs = lhs | rhs;
+        return lhs;
+    }
+
+    inline constexpr EffectCapabilities AllEffectCapabilities =
+        EffectCapabilities::BackdropCapture | EffectCapabilities::BackdropBlur |
+        EffectCapabilities::GlassMaterial | EffectCapabilities::Shadow |
+        EffectCapabilities::Glow | EffectCapabilities::Bloom;
+
+    constexpr bool HasEffectCapabilities(EffectCapabilities available,
+                                         EffectCapabilities required) noexcept
+    {
+        return (available & required) == required;
+    }
+
+    constexpr EffectCapabilities RequiredEffectCapabilities(EffectId id) noexcept
+    {
+        switch (id)
+        {
+        case EffectId::BackdropBlur:
+            return EffectCapabilities::BackdropCapture | EffectCapabilities::BackdropBlur;
+        case EffectId::Glass:
+            return EffectCapabilities::BackdropCapture | EffectCapabilities::BackdropBlur |
+                   EffectCapabilities::GlassMaterial;
+        case EffectId::Shadow:
+            return EffectCapabilities::Shadow;
+        case EffectId::Glow:
+            return EffectCapabilities::Glow;
+        case EffectId::Bloom:
+            return EffectCapabilities::BackdropCapture | EffectCapabilities::BackdropBlur |
+                   EffectCapabilities::Bloom;
+        default:
+            return EffectCapabilities::None;
+        }
+    }
+
+    struct EffectVec2
+    {
+        float x = 0.0f;
+        float y = 0.0f;
+    };
+
+    struct EffectExtent
+    {
+        std::uint32_t width = 0;
+        std::uint32_t height = 0;
+    };
+
+    struct EffectRect
+    {
+        EffectVec2 min{};
+        EffectVec2 max{};
+    };
+
+    struct EffectColor
+    {
+        float r = 0.0f;
+        float g = 0.0f;
+        float b = 0.0f;
+        float a = 1.0f;
+    };
+
+    constexpr EffectColor EffectColorFromRgba8(std::uint32_t rgba) noexcept
+    {
+        constexpr float scale = 1.0f / 255.0f;
+        return {
+            static_cast<float>((rgba >> 24) & 0xffu) * scale,
+            static_cast<float>((rgba >> 16) & 0xffu) * scale,
+            static_cast<float>((rgba >> 8) & 0xffu) * scale,
+            static_cast<float>(rgba & 0xffu) * scale
+        };
+    }
+
+    struct BlurEffectParams
+    {
+        EffectRect bounds{};
+        float sigma = 8.0f;
+        float rounding = 0.0f;
+        float opacity = 1.0f;
+    };
+
+    /** Complete value description for one screen-space glass material. */
+    struct GlassEffectParams
+    {
+        EffectRect bounds{};
+        float rounding = 0.0f;
+        float opacity = 1.0f;
+        EffectColor tint{1.0f, 1.0f, 1.0f, 1.0f};
+        float tintStrength = 0.16f;
+        EffectColor accent{1.0f, 1.0f, 1.0f, 1.0f};
+        float blurSigma = 8.0f;
+        float refraction = 1.5f;
+        float edgeWidth = 1.5f;
+        float edgeHighlight = 0.45f;
+        float thickness = 0.5f;
+        float shapePower = 2.0f;
+        float lensStrength = 0.25f;
+        float lensBase = 1.0f;
+        float lensFalloff = 4.0f;
+        float lensBias = 0.0f;
+        float lensPower = 1.0f;
+        float noise = 0.0f;
+        float glowStrength = 0.0f;
+        float glowSpread = 8.0f;
+        float shadowStrength = 0.25f;
+        float shadowSpread = 12.0f;
+    };
+
+    struct ShadowEffectParams
+    {
+        EffectRect bounds{};
+        EffectVec2 offset{0.0f, 6.0f};
+        EffectColor color{0.0f, 0.0f, 0.0f, 1.0f};
+        float rounding = 0.0f;
+        float sigma = 10.0f;
+        float strength = 0.35f;
+    };
+
+    struct GlowEffectParams
+    {
+        EffectRect bounds{};
+        EffectColor color{1.0f, 1.0f, 1.0f, 1.0f};
+        float rounding = 0.0f;
+        float sigma = 8.0f;
+        float strength = 0.5f;
+    };
+
+    struct BloomEffectParams
+    {
+        EffectRect bounds{};
+        float sigma = 8.0f;
+        float strength = 0.35f;
+        float brightnessThreshold = 0.72f;
+        float saturationThreshold = 0.0f;
+    };
+
+    /** Pointer-free command value copied into ImDrawList callback storage. */
+    struct EffectRequest
+    {
+        EffectId id = EffectId::Glass;
+        std::uint32_t flags = 0;
+        BlurEffectParams blur{};
+        GlassEffectParams glass{};
+        ShadowEffectParams shadow{};
+        GlowEffectParams glow{};
+        BloomEffectParams bloom{};
+        std::array<std::byte, 64> customData{};
+        std::uint32_t customDataSize = 0;
+
+        static constexpr EffectRequest BackdropBlur(const BlurEffectParams& params) noexcept
+        {
+            EffectRequest request{};
+            request.id = EffectId::BackdropBlur;
+            request.blur = params;
+            return request;
+        }
+
+        static constexpr EffectRequest Glass(const GlassEffectParams& params) noexcept
+        {
+            EffectRequest request{};
+            request.id = EffectId::Glass;
+            request.glass = params;
+            return request;
+        }
+
+        static constexpr EffectRequest Shadow(const ShadowEffectParams& params) noexcept
+        {
+            EffectRequest request{};
+            request.id = EffectId::Shadow;
+            request.shadow = params;
+            return request;
+        }
+
+        static constexpr EffectRequest Glow(const GlowEffectParams& params) noexcept
+        {
+            EffectRequest request{};
+            request.id = EffectId::Glow;
+            request.glow = params;
+            return request;
+        }
+
+        static constexpr EffectRequest Bloom(const BloomEffectParams& params) noexcept
+        {
+            EffectRequest request{};
+            request.id = EffectId::Bloom;
+            request.bloom = params;
+            return request;
+        }
+    };
+
+    /** Backend-neutral constant block shared by HLSL and GLSL implementations. */
+    struct EffectConstants
+    {
+        std::array<float, 64> values{};
+    };
+
+    constexpr EffectConstants MakeBlurEffectConstants(EffectExtent extent,
+                                                       EffectVec2 direction,
+                                                       float sigma) noexcept
+    {
+        EffectConstants constants{};
+        constants.values[0] = extent.width != 0 ? 1.0f / static_cast<float>(extent.width) : 0.0f;
+        constants.values[1] = extent.height != 0 ? 1.0f / static_cast<float>(extent.height) : 0.0f;
+        constants.values[2] = direction.x;
+        constants.values[3] = direction.y;
+        constants.values[4] = sigma;
+        return constants;
+    }
+
+    constexpr EffectConstants MakeGlassEffectConstants(const GlassEffectParams& glass,
+                                                        EffectExtent extent,
+                                                        float timeSeconds) noexcept
+    {
+        EffectConstants constants{};
+        constants.values[0] = glass.bounds.min.x;
+        constants.values[1] = glass.bounds.min.y;
+        constants.values[2] = glass.bounds.max.x;
+        constants.values[3] = glass.bounds.max.y;
+        constants.values[4] = glass.rounding;
+        constants.values[5] = glass.opacity;
+        constants.values[6] = glass.tint.r;
+        constants.values[7] = glass.tint.g;
+        constants.values[8] = glass.tint.b;
+        constants.values[9] = glass.tintStrength;
+        constants.values[10] = glass.accent.r;
+        constants.values[11] = glass.accent.g;
+        constants.values[12] = glass.accent.b;
+        constants.values[13] = glass.refraction;
+        constants.values[14] = glass.edgeWidth;
+        constants.values[15] = glass.edgeHighlight;
+        constants.values[16] = glass.thickness;
+        constants.values[17] = glass.shapePower;
+        constants.values[18] = glass.lensStrength;
+        constants.values[19] = glass.lensBase;
+        constants.values[20] = glass.lensFalloff;
+        constants.values[21] = glass.lensBias;
+        constants.values[22] = glass.lensPower;
+        constants.values[23] = glass.noise;
+        constants.values[24] = glass.glowStrength;
+        constants.values[25] = glass.glowSpread;
+        constants.values[26] = glass.shadowStrength;
+        constants.values[27] = glass.shadowSpread;
+        constants.values[28] = extent.width != 0 ? 1.0f / static_cast<float>(extent.width) : 0.0f;
+        constants.values[29] = extent.height != 0 ? 1.0f / static_cast<float>(extent.height) : 0.0f;
+        constants.values[30] = timeSeconds;
+        return constants;
+    }
+
+    constexpr EffectConstants MakeBloomEffectConstants(const BloomEffectParams& bloom,
+                                                        EffectExtent extent) noexcept
+    {
+        EffectConstants constants{};
+        constants.values[0] = extent.width != 0 ? 1.0f / static_cast<float>(extent.width) : 0.0f;
+        constants.values[1] = extent.height != 0 ? 1.0f / static_cast<float>(extent.height) : 0.0f;
+        constants.values[4] = bloom.sigma;
+        constants.values[5] = bloom.strength;
+        constants.values[6] = bloom.brightnessThreshold;
+        constants.values[7] = bloom.saturationThreshold;
+        constants.values[8] = bloom.bounds.min.x;
+        constants.values[9] = bloom.bounds.min.y;
+        constants.values[10] = bloom.bounds.max.x;
+        constants.values[11] = bloom.bounds.max.y;
+        return constants;
+    }
+
+    static_assert(std::is_standard_layout_v<EffectRequest> &&
+                  std::is_trivially_copyable_v<EffectRequest>);
+    static_assert(std::is_standard_layout_v<EffectConstants> &&
+                  std::is_trivially_copyable_v<EffectConstants> &&
+                  sizeof(EffectConstants) == sizeof(float) * 64);
+
+    class IEffectRenderer
+    {
+    public:
+        virtual ~IEffectRenderer() = default;
+        virtual EffectCapabilities GetCapabilities() const noexcept = 0;
+        virtual void RenderEffect(const EffectRequest& request) noexcept = 0;
+        virtual IEffectRenderer* GetBackendRenderer() noexcept { return this; }
+    };
+
+    using CustomEffectCallback = void (*)(void* userData, const EffectRequest& request,
+                                          IEffectRenderer& backend) noexcept;
+
+    /** Dispatches custom effect IDs before forwarding built-in effects to a backend. */
+    class EffectRegistry final : public IEffectRenderer
+    {
+    public:
+        explicit EffectRegistry(IEffectRenderer* backend = nullptr);
+        ~EffectRegistry() override;
+        EffectRegistry(EffectRegistry&&) noexcept;
+        EffectRegistry& operator=(EffectRegistry&&) noexcept;
+        EffectRegistry(const EffectRegistry&) = delete;
+        EffectRegistry& operator=(const EffectRegistry&) = delete;
+
+        bool Register(EffectId id, CustomEffectCallback callback, void* userData = nullptr);
+        bool Unregister(EffectId id);
+        void SetBackend(IEffectRenderer* backend) noexcept;
+        EffectCapabilities GetCapabilities() const noexcept override;
+        void RenderEffect(const EffectRequest& request) noexcept override;
+        IEffectRenderer* GetBackendRenderer() noexcept override;
+
+    private:
+        struct Impl;
+        std::unique_ptr<Impl> impl_;
+    };
+
+#ifdef IVUI_INTERNAL_API
+    /** Adds an effect at the current draw-list Z position and then resets ImGui state.
+     *  The renderer is borrowed and must outlive rendering of the draw data.
+     */
+    void SubmitEffect(ImDrawList* drawList, IEffectRenderer& renderer,
+                      const EffectRequest& request);
+
+    /** Convenience overload using ImGui::GetWindowDrawList(). */
+    void SubmitEffect(IEffectRenderer& renderer, const EffectRequest& request);
+#endif
 }

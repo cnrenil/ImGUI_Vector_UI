@@ -41,7 +41,7 @@ namespace IVUI
                     ImMax(1.6f * S, 1.0f), a.hidden ? 1 : 0);
 
         ImGui::SetCursorScreenPos(bgPos);
-        if (ImGui::InvisibleButton(label, ImVec2(width, rowH)))
+        if (ImGui::InvisibleButton(label, ImVec2(width, rowH), ImGuiButtonFlags_EnableNav))
             a.hidden = !a.hidden; // "is open"
 
         return ImVec2(bgPos.x, bgEnd.y);
@@ -113,7 +113,7 @@ namespace IVUI
         {
             ComboReveal(label, a, dropTop, width, rowH, count, [&](int i)
             {
-                if (ImGui::InvisibleButton("ivui_row", ImVec2(width, rowH))) { *index = i; changed = true; }
+                if (ImGui::InvisibleButton("ivui_row", ImVec2(width, rowH), ImGuiButtonFlags_EnableNav)) { *index = i; changed = true; }
                 ComboRow(a, i, *(items.begin() + i), width, rowH, (*index == i));
             });
         }
@@ -149,7 +149,7 @@ namespace IVUI
             ComboReveal(label, a, dropTop, width, rowH, count, [&](int i)
             {
                 const ComboItem& item = *(items.begin() + i);
-                if (ImGui::InvisibleButton("ivui_row", ImVec2(width, rowH)))
+                if (ImGui::InvisibleButton("ivui_row", ImVec2(width, rowH), ImGuiButtonFlags_EnableNav))
                     if (item.open) { *item.open = !*item.open; changed = true; }
                 ComboRow(a, i, item.label, width, rowH, (item.open && *item.open));
             });

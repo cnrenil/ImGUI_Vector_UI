@@ -13,6 +13,7 @@ namespace IVUI
         StatusListStyle style = StatusListStyle::ThemeDefault;
     };
 
+#ifdef IVUI_INTERNAL_API
     /** @brief Draws an active-feature HUD using the requested or active-theme layout.
      *  @param anchorTopRight Screen-space top-right anchor.
      *  @param labels Active feature labels.
@@ -33,4 +34,5 @@ namespace IVUI
      *  @param activeLabels Active feature labels.
      */
     void StatusChips(ImVec2 anchorTopRight, std::initializer_list<const char*> activeLabels);
+#endif
 }

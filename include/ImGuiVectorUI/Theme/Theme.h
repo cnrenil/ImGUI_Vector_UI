@@ -118,6 +118,10 @@ namespace IVUI
     /// Active-feature HUD layouts. Geometry and effects remain theme parameters.
     enum HudLayout { HUD_Chips = 0, HUD_SideRail, HUD_RainbowFrame, HUD_GlassStack };
 
+    enum class Preset { Peach, Cyan, Violet, Emerald, COUNT };
+    enum class Style { MaterialYou, Vape, Neverlose, ImGuiClassic, iOSGlass, COUNT };
+
+#ifdef IVUI_INTERNAL_API
     /** @name Built-in color presets */
     /** @{ */
     Theme ThemeInjectionPeach();   ///<  default — the UI1001 salmon/charcoal look
@@ -126,7 +130,6 @@ namespace IVUI
     Theme ThemeInjectionEmerald();
     /** @} */
 
-    enum class Preset { Peach, Cyan, Violet, Emerald, COUNT };
     /** @brief Creates the color preset selected by @p p. */
     Theme       GetPreset(Preset p);
     /** @return The display name for @p p. */
@@ -134,7 +137,6 @@ namespace IVUI
 
     /// Global visual styles — a whole look (colors + shape + glow + translucency +
     /// motion feel), not just a palette. Built on top of the color presets.
-    enum class Style { MaterialYou, Vape, Neverlose, ImGuiClassic, iOSGlass, COUNT };
     /** @brief Creates the complete visual style selected by @p s. */
     Theme       GetStyle(Style s);
     /** @return The display name for @p s. */
@@ -170,4 +172,5 @@ namespace IVUI
      *  @param dt Elapsed time in seconds.
      */
     void AdvanceThemeMorph(float dt);
+#endif
 }

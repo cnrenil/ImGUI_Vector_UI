@@ -1,13 +1,14 @@
 #include "ImGuiVectorUI/Core/Easing.h"
 
-#include "imgui_internal.h" // ImClamp, IM_PI
+#include <algorithm>
 #include <cmath>
 
 namespace IVUI
 {
     float EaseValue(float start, float end, float t, EasingType type)
     {
-        t = ImClamp(t, 0.0f, 1.0f);
+        constexpr float pi = 3.14159265358979323846f;
+        t = std::clamp(t, 0.0f, 1.0f);
         float e = 0.0f;
         switch (type)
         {
@@ -27,9 +28,9 @@ namespace IVUI
         case EASE_IN_OUT_QUART:
             e = (t < 0.5f) ? 8.0f * t * t * t * t : 1.0f - powf(-2.0f * t + 2.0f, 4.0f) / 2.0f;
             break;
-        case EASE_IN_SINE:      e = 1.0f - cosf((t * IM_PI) / 2.0f); break;
-        case EASE_OUT_SINE:     e = sinf((t * IM_PI) / 2.0f); break;
-        case EASE_IN_OUT_SINE:  e = -(cosf(IM_PI * t) - 1.0f) / 2.0f; break;
+        case EASE_IN_SINE:      e = 1.0f - cosf((t * pi) / 2.0f); break;
+        case EASE_OUT_SINE:     e = sinf((t * pi) / 2.0f); break;
+        case EASE_IN_OUT_SINE:  e = -(cosf(pi * t) - 1.0f) / 2.0f; break;
         case EASE_IN_EXPO:      e = (t == 0.0f) ? 0.0f : powf(2.0f, 10.0f * t - 10.0f); break;
         case EASE_OUT_EXPO:     e = (t == 1.0f) ? 1.0f : 1.0f - powf(2.0f, -10.0f * t); break;
         case EASE_IN_OUT_EXPO:
@@ -47,7 +48,7 @@ namespace IVUI
             break;
         case EASE_OUT_ELASTIC:
         {
-            const float c4 = (2.0f * IM_PI) / 3.0f;
+            const float c4 = (2.0f * pi) / 3.0f;
             const float amplitude = 0.2f; // subtle bounce
             if (t == 0.0f)      e = 0.0f;
             else if (t == 1.0f) e = 1.0f;

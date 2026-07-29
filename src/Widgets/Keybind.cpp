@@ -9,23 +9,23 @@
 
 namespace IVUI
 {
-    static ImGuiID g_captureId = 0;
-    static int     g_captureSlot = -1;
-
     static bool KeyChip(const char* idstr, ImGuiID rowId, int slot, int* key, ImVec2 pos, ImVec2 size)
     {
         const Theme& th = GetTheme();
         const float S = th.Scale;
         ImDrawList* dl = ImGui::GetWindowDrawList();
 
-        const bool wasCapturing = (g_captureId == rowId && g_captureSlot == slot);
+        Context* context = GetContext();
+        if (context == nullptr)
+            return false;
+        const bool wasCapturing = (context->keyCaptureId == rowId && context->keyCaptureSlot == slot);
         ImGui::SetCursorScreenPos(pos);
-        if (ImGui::InvisibleButton(idstr, size))
+        if (ImGui::InvisibleButton(idstr, size, ImGuiButtonFlags_EnableNav))
         {
-            g_captureId = rowId;
-            g_captureSlot = slot;
+            context->keyCaptureId = rowId;
+            context->keyCaptureSlot = slot;
         }
-        const bool capturing = (g_captureId == rowId && g_captureSlot == slot);
+        const bool capturing = (context->keyCaptureId == rowId && context->keyCaptureSlot == slot);
 
         dl->AddRectFilled(pos, pos + size, capturing ? th.Accent : th.Surface2, th.RoundingControl * S);
         dl->AddRect(pos, pos + size, th.BorderMuted, th.RoundingControl * S, 0, th.BorderThickness * S);
@@ -37,14 +37,13 @@ namespace IVUI
         bool changed = false;
         if (wasCapturing) // scan only after the initiating click frame (so the click isn't bound)
         {
-            if (Context* c = GetContext())
-                c->wantCaptureHotkey = true;
+            context->wantCaptureHotkey = true;
             for (int k = ImGuiKey_NamedKey_BEGIN; k < ImGuiKey_NamedKey_END; ++k)
             {
                 if (ImGui::IsKeyPressed((ImGuiKey)k, false))
                 {
-                    g_captureId = 0;
-                    g_captureSlot = -1;
+                    context->keyCaptureId = 0;
+                    context->keyCaptureSlot = -1;
                     *key = (k == ImGuiKey_Escape) ? ImGuiKey_None : k;
                     changed = true;
                     break;
@@ -54,7 +53,7 @@ namespace IVUI
         return changed;
     }
 
-    static void ModeSeg(int* mode, ImVec2 pos, ImVec2 size)
+    static bool ModeSeg(int* mode, ImVec2 pos, ImVec2 size)
     {
         const Theme& th = GetTheme();
         const float S = th.Scale;
@@ -63,14 +62,18 @@ namespace IVUI
         const float segW = size.x / 3.0f;
         dl->AddRectFilled(pos, pos + size, th.Surface2, th.RoundingControl * S);
         dl->AddRect(pos, pos + size, th.BorderMuted, th.RoundingControl * S, 0, th.BorderThickness * S);
+        bool changed = false;
         for (int i = 0; i < 3; ++i)
         {
             const ImVec2 sp(pos.x + segW * i, pos.y);
             const ImVec2 se(pos.x + segW * (i + 1), pos.y + size.y);
             ImGui::SetCursorScreenPos(sp);
             ImGui::PushID(i);
-            if (ImGui::InvisibleButton("seg", ImVec2(segW, size.y)))
+            if (ImGui::InvisibleButton("seg", ImVec2(segW, size.y), ImGuiButtonFlags_EnableNav) && *mode != i)
+            {
                 *mode = i;
+                changed = true;
+            }
             ImGui::PopID();
             if (*mode == i)
                 dl->AddRectFilled(sp, se, th.Accent, th.RoundingControl * S);
@@ -78,6 +81,7 @@ namespace IVUI
             AddTextScaled(dl, ImVec2(sp.x + (segW - ts.x) * 0.5f, sp.y + (size.y - ts.y) * 0.5f),
                           *mode == i ? th.OnAccent : th.TextMuted, labels[i], th.FontSizeSmall);
         }
+        return changed;
     }
 
     bool KeybindRow(const char* label, Keybind* kb)
@@ -105,7 +109,7 @@ namespace IVUI
         bool changed = false;
         changed |= KeyChip("k1", rowId, 0, &kb->key1, k1P, chipS);
         changed |= KeyChip("k2", rowId, 1, &kb->key2, k2P, chipS);
-        ModeSeg(&kb->mode, modeP, modeS);
+        changed |= ModeSeg(&kb->mode, modeP, modeS);
         ImGui::PopID();
 
         ImGui::SetCursorScreenPos(cursor);

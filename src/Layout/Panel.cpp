@@ -4,6 +4,7 @@
 #include "ImGuiVectorUI/Core/Easing.h"
 #include "ImGuiVectorUI/Core/Motion.h"
 #include "ImGuiVectorUI/Core/DragDrop.h"
+#include "ImGuiVectorUI/Core/Context.h"
 #include "ImGuiVectorUI/Drawing/Effects.h"
 #include "ImGuiVectorUI/Theme/Theme.h"
 #include "ImGuiVectorUI/Drawing/DrawText.h"
@@ -16,6 +17,12 @@
 
 namespace IVUI
 {
+    static EffectColor ToEffectColor(ImU32 color)
+    {
+        const ImVec4 value = ImGui::ColorConvertU32ToFloat4(color);
+        return {value.x, value.y, value.z, value.w};
+    }
+
     enum class TBIcon { Edit, Close };
 
     static bool TitleButton(const char* id, ImVec2 center, float r, TBIcon icon, bool active)
@@ -24,7 +31,8 @@ namespace IVUI
         const float S = th.Scale;
         ImDrawList* dl = ImGui::GetWindowDrawList();
         ImGui::SetCursorScreenPos(ImVec2(center.x - r, center.y - r));
-        const bool clicked = ImGui::InvisibleButton(id, ImVec2(r * 2.0f, r * 2.0f));
+        const bool clicked = ImGui::InvisibleButton(id, ImVec2(r * 2.0f, r * 2.0f),
+                                                    ImGuiButtonFlags_EnableNav);
         const bool hov = ImGui::IsItemHovered();
         if (active || hov)
             dl->AddCircleFilled(center, r, active ? th.Accent : th.Surface2);
@@ -78,13 +86,24 @@ namespace IVUI
 
         // Submit glass before ImGui so it remains beneath panel content.
         const float pround = th.RoundingPanel * S;
+        if (Context* context = GetContext(); context && context->effectRenderer)
         {
-            GlassRect g;
-            g.min = wpos; g.max = wpos + wsize;
+            BlurEffectParams blur;
+            blur.bounds.min = {wpos.x, wpos.y};
+            blur.bounds.max = {wpos.x + wsize.x, wpos.y + wsize.y};
+            blur.sigma = th.BackdropBlurSigma;
+            blur.rounding = pround;
+            blur.opacity = 1.0f;
+            SubmitEffect(*context->effectRenderer, EffectRequest::BackdropBlur(blur));
+
+            GlassEffectParams g;
+            g.bounds.min = {wpos.x, wpos.y};
+            g.bounds.max = {wpos.x + wsize.x, wpos.y + wsize.y};
             g.rounding = pround;
             g.opacity = th.GlassOpacity;
-            g.tint = th.GlassTint; g.tintStrength = th.GlassTintStrength;
-            g.accent = th.Accent;
+            g.tint = ToEffectColor(th.GlassTint); g.tintStrength = th.GlassTintStrength;
+            g.accent = ToEffectColor(th.Accent);
+            g.blurSigma = th.BackdropBlurSigma;
             g.refraction = th.GlassRefraction * S;
             g.edgeWidth = th.GlassEdgeWidth * S;
             g.edgeHighlight = th.GlassEdgeHighlight;
@@ -98,8 +117,11 @@ namespace IVUI
             g.noise = th.GlassNoise * S;
             g.glowStrength = th.PanelGlow; g.glowSpread = th.PanelGlowSpread * S;
             g.shadowStrength = th.PanelShadow; g.shadowSpread = th.PanelShadowSpread * S;
-            SubmitGlass(g);
+            SubmitEffect(*context->effectRenderer, EffectRequest::Glass(g));
         }
+        else
+            draw->AddRectFilled(wpos, wpos + wsize,
+                                WithAlphaMul(th.GlassTint, th.GlassOpacity), pround);
         if (th.BorderThickness > 0.01f)
             draw->AddRect(wpos, wpos + wsize, th.Border, pround, 0, th.BorderThickness * S);
 
@@ -107,12 +129,13 @@ namespace IVUI
         draw->AddRectFilled(wpos, titleEnd, WithAlphaMul(th.Surface1, th.PanelBodyAlpha * 0.10f), pround, ImDrawFlags_RoundCornersTop);
         Sheen(draw, wpos, titleEnd, pround, th.Sheen);
         draw->AddLine(ImVec2(wpos.x + pad, titleEnd.y), ImVec2(titleEnd.x - pad, titleEnd.y), th.Accent, ImMax(2.0f * S, 1.0f));
-        static ImGuiID s_renameId = 0;
-        static bool s_renameFocus = false;
+        Context* context = GetContext();
+        ImGuiID& renameId = context->panelRenameId;
+        bool& renameFocus = context->panelRenameFocus;
         const float rr = titleH * 0.28f;
         const int nBtns = hdr ? ((hdr->showEdit ? 1 : 0) + (hdr->showClose ? 1 : 0)) : 0;
         const float titleTextW = ImMax(wsize.x - pad * 2.0f - nBtns * (rr * 2.0f + 6.0f * S), 40.0f * S);
-        const bool renaming = hdr && hdr->editBuf && s_renameId == win->ID;
+        const bool renaming = hdr && hdr->editBuf && renameId == win->ID;
         if (renaming)
         {
             ImGui::SetCursorScreenPos(ImVec2(wpos.x + pad, wpos.y + (titleH - ImGui::GetFrameHeight()) * 0.5f));
@@ -120,7 +143,7 @@ namespace IVUI
             ImGui::PushStyleColor(ImGuiCol_FrameBg, th.Surface2);
             ImGui::PushStyleColor(ImGuiCol_Text, th.Text);
             ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, th.RoundingControl * S);
-            if (s_renameFocus) { ImGui::SetKeyboardFocusHere(); s_renameFocus = false; }
+            if (renameFocus) { ImGui::SetKeyboardFocusHere(); renameFocus = false; }
             const bool enter = ImGui::InputText("##prename", hdr->editBuf, (size_t)hdr->editBufSize,
                                                 ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
             const bool committed = enter || ImGui::IsItemDeactivatedAfterEdit(); // Esc cancels (no commit)
@@ -128,7 +151,7 @@ namespace IVUI
             ImGui::PopStyleVar();
             ImGui::PopStyleColor(2);
             if (committed) hdr->nameChanged = true;
-            if (closed) s_renameId = 0;
+            if (closed) renameId = 0;
         }
         else
         {
@@ -138,8 +161,8 @@ namespace IVUI
                 ImGui::IsMouseHoveringRect(wpos, ImVec2(wpos.x + titleTextW, wpos.y + titleH)) &&
                 ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
             {
-                s_renameId = win->ID;
-                s_renameFocus = true;
+                renameId = win->ID;
+                renameFocus = true;
                 const char* end = VisibleEnd(label);
                 size_t n = (size_t)(end - label);
                 if (n >= (size_t)hdr->editBufSize) n = (size_t)hdr->editBufSize - 1;

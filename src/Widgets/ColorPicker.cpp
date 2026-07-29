@@ -28,7 +28,7 @@ namespace IVUI
 
         ImGui::PushID(label);
         ImGui::SetCursorScreenPos(sMin);
-        if (ImGui::InvisibleButton("swatch", ImVec2(sw, h)))
+        if (ImGui::InvisibleButton("swatch", ImVec2(sw, h), ImGuiButtonFlags_EnableNav))
             ImGui::OpenPopup("pop");
 
         bool changed = false;

@@ -44,7 +44,8 @@ namespace IVUI
         IconCheck(draw, knobC, knobR * 1.15f, check, ImMax(1.5f * S, 1.0f));
 
         ImGui::SetCursorScreenPos(cursor);
-        const bool clicked = ImGui::InvisibleButton(label, ImVec2(ImMax(avail.x, bg.x), bg.y));
+        const bool clicked = ImGui::InvisibleButton(label, ImVec2(ImMax(avail.x, bg.x), bg.y),
+                                                    ImGuiButtonFlags_EnableNav);
         if (clicked)
             *v = !*v;
         return clicked;

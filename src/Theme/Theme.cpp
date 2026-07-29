@@ -4,6 +4,7 @@
 #include "imgui_internal.h" // ImLerp
 
 #include <cmath> // expf
+#include <stdexcept>
 
 namespace IVUI
 {
@@ -461,7 +462,7 @@ namespace IVUI
 
     bool StyleIsDynamicIsland(Style s) { return s == Style::iOSGlass; }
 
-    static Theme g_fallback = ThemeInjectionPeach();
+    static const Theme g_fallback = ThemeInjectionPeach();
 
     static void MorphColor(ImU32& c, ImU32 target, float k) { c = LerpCol(c, target, k); }
     static void MorphF(float& v, float target, float k) { v += (target - v) * k; }
@@ -592,6 +593,6 @@ namespace IVUI
         Context* c = GetContext();
         if (c && !c->themeStack.empty())
             return c->themeStack.back();
-        return g_fallback;
+        throw std::logic_error("Mutable IVUI theme access requires an active UI context.");
     }
 }

@@ -1,0 +1,7 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+if(@IVUI_BUILD_VULKAN_EFFECTS@)
+    find_dependency(Vulkan)
+endif()
+include("${CMAKE_CURRENT_LIST_DIR}/ImGuiVectorUITargets.cmake")

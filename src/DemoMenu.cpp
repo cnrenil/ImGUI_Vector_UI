@@ -4,6 +4,11 @@
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "ImGuiVectorUI/ImGuiVectorUI.h"
+#include "ImGuiVectorUI/Core/DragDrop.h"
+#include "ImGuiVectorUI/Core/Motion.h"
+#include "ImGuiVectorUI/Drawing/DrawText.h"
+#include "ImGuiVectorUI/Drawing/Primitives.h"
+#include "ImGuiVectorUI/Drawing/Tooltip.h"
 
 #include <vector>
 #include <string>
@@ -14,6 +19,7 @@
 
 namespace Demo
 {
+    static IVUI::UI* g_ui = nullptr;
     static int   g_tab = 0;
     static float g_menuVis = 0.0f;
 
@@ -73,14 +79,14 @@ namespace Demo
 
     static void DrawEntityTable()
     {
-        const IVUI::Theme& th = IVUI::GetTheme();
+        const IVUI::Theme& th = g_ui->theme().Current();
         const float S = th.Scale;
         struct Ent { const char* name; float dist; int hp; };
         static Ent ents[] = {
             { "Bandit", 42.5f, 80 }, { "Skag", 12.0f, 100 }, { "Psycho", 88.3f, 45 },
             { "Loader", 150.0f, 100 }, { "Badass", 30.0f, 100 }, { "Varkid", 64.0f, 60 } };
         const int N = (int)(sizeof(ents) / sizeof(ents[0]));
-        if (IVUI::BeginTable("##ents", 3, ImVec2(0.0f, 140.0f * S)))
+        if (g_ui->layouts().BeginTable("##ents", 3, ImVec2(0.0f, 140.0f * S)))
         {
             ImGui::TableSetupScrollFreeze(0, 1);
             ImGui::TableSetupColumn("Name");
@@ -107,7 +113,7 @@ namespace Demo
                 ImGui::TableNextColumn(); ImGui::Text("%.1f m", ents[i].dist);
                 ImGui::TableNextColumn(); ImGui::Text("%d", ents[i].hp);
             }
-            IVUI::EndTable();
+            g_ui->layouts().EndTable();
         }
     }
 
@@ -126,49 +132,49 @@ namespace Demo
             g_features.push_back({ std::string(cat) + "." + id, cat, grp, name, std::move(d) });
         };
 
-        add("aimbot", "", "enabled", "Enabled", [](const char* l) { IVUI::Toggle(l, &g_aimEnabled); });
-        add("aimbot", "", "fov", "FOV", [](const char* l) { IVUI::SliderFloat(l, &g_fov, 1.0f, 180.0f, "%.0f"); });
-        add("aimbot", "", "smoothing", "Smoothing", [](const char* l) { IVUI::SliderFloat(l, &g_smooth, 1.0f, 20.0f, "%.1f"); });
-        add("aimbot", "", "mode", "Mode", [](const char* l) { IVUI::SliderLabeled(l, &g_aimMode, { "Off", "Legit", "Rage" }); });
-        add("aimbot", "Advanced", "vischeck", "Visibility Check", [](const char* l) { IVUI::Toggle(l, &g_aimVisCheck); });
-        add("aimbot", "Advanced", "bone", "Target Bone", [](const char* l) { IVUI::Combo(l, &g_aimBone, { "Head", "Neck", "Chest", "Pelvis" }); });
+        add("aimbot", "", "enabled", "Enabled", [](const char* l) { g_ui->widgets().Toggle(l, &g_aimEnabled); });
+        add("aimbot", "", "fov", "FOV", [](const char* l) { g_ui->widgets().SliderFloat(l, &g_fov, 1.0f, 180.0f, "%.0f"); });
+        add("aimbot", "", "smoothing", "Smoothing", [](const char* l) { g_ui->widgets().SliderFloat(l, &g_smooth, 1.0f, 20.0f, "%.1f"); });
+        add("aimbot", "", "mode", "Mode", [](const char* l) { g_ui->widgets().SliderLabeled(l, &g_aimMode, { "Off", "Legit", "Rage" }); });
+        add("aimbot", "Advanced", "vischeck", "Visibility Check", [](const char* l) { g_ui->widgets().Toggle(l, &g_aimVisCheck); });
+        add("aimbot", "Advanced", "bone", "Target Bone", [](const char* l) { g_ui->widgets().Combo(l, &g_aimBone, { "Head", "Neck", "Chest", "Pelvis" }); });
 
         add("esp", "", "boxes", "Boxes", [](const char* l) {
-            IVUI::ComboMulti(l, { { "2D Box", &g_espBox }, { "Name", &g_espName }, { "Distance", &g_espDist }, { "Health Bar", &g_espHealth } });
+            g_ui->widgets().ComboMulti(l, { { "2D Box", &g_espBox }, { "Name", &g_espName }, { "Distance", &g_espDist }, { "Health Bar", &g_espHealth } });
         });
-        add("esp", "", "distance", "Max Distance", [](const char* l) { IVUI::SliderFloat(l, &g_espDistance, 10.0f, 1000.0f, "%.0f m"); });
-        add("esp", "", "color", "Box Color", [](const char* l) { IVUI::ColorPicker(l, &g_espColor); });
+        add("esp", "", "distance", "Max Distance", [](const char* l) { g_ui->widgets().SliderFloat(l, &g_espDistance, 10.0f, 1000.0f, "%.0f m"); });
+        add("esp", "", "color", "Box Color", [](const char* l) { g_ui->widgets().ColorPicker(l, &g_espColor); });
         add("esp", "", "entities", "Entity List", [](const char*) { DrawEntityTable(); });
 
-        add("weapon", "", "mode", "Fire Mode", [](const char* l) { IVUI::Combo(l, &g_weaponMode, { "Legit", "Rage", "Hybrid" }); });
-        add("weapon", "", "firerate", "Fire Rate", [](const char* l) { IVUI::SliderSegments(l, &g_fireRate, 5, "%d"); });
-        add("weapon", "", "norecoil", "No Recoil", [](const char* l) { IVUI::Toggle(l, &g_noRecoil); });
-        add("weapon", "", "apply", "Apply Loadout", [](const char* l) { if (IVUI::Button(l, ImVec2(0, 0), true)) g_weaponMode = (g_weaponMode + 1) % 3; });
+        add("weapon", "", "mode", "Fire Mode", [](const char* l) { g_ui->widgets().Combo(l, &g_weaponMode, { "Legit", "Rage", "Hybrid" }); });
+        add("weapon", "", "firerate", "Fire Rate", [](const char* l) { g_ui->widgets().SliderSegments(l, &g_fireRate, 5, "%d"); });
+        add("weapon", "", "norecoil", "No Recoil", [](const char* l) { g_ui->widgets().Toggle(l, &g_noRecoil); });
+        add("weapon", "", "apply", "Apply Loadout", [](const char* l) { if (g_ui->widgets().Button(l, ImVec2(0, 0), true)) g_weaponMode = (g_weaponMode + 1) % 3; });
 
-        add("player", "", "god", "God Mode", [](const char* l) { IVUI::Toggle(l, &g_godmode); });
-        add("player", "", "ammo", "Infinite Ammo", [](const char* l) { IVUI::Toggle(l, &g_infAmmo); });
-        add("player", "", "speed", "Speed Hack", [](const char* l) { IVUI::Toggle(l, &g_speedhack); });
-        add("player", "", "speedmult", "Speed Multiplier", [](const char* l) { IVUI::SliderFloat(l, &g_speedMult, 1.0f, 5.0f, "%.2fx"); });
+        add("player", "", "god", "God Mode", [](const char* l) { g_ui->widgets().Toggle(l, &g_godmode); });
+        add("player", "", "ammo", "Infinite Ammo", [](const char* l) { g_ui->widgets().Toggle(l, &g_infAmmo); });
+        add("player", "", "speed", "Speed Hack", [](const char* l) { g_ui->widgets().Toggle(l, &g_speedhack); });
+        add("player", "", "speedmult", "Speed Multiplier", [](const char* l) { g_ui->widgets().SliderFloat(l, &g_speedMult, 1.0f, 5.0f, "%.2fx"); });
 
-        add("visual", "", "quality", "Quality", [](const char* l) { IVUI::SliderLabeled(l, &g_quality, { "Low", "Medium", "High", "Ultra" }); });
-        add("visual", "", "bloom", "Bloom Strength", [](const char* l) { IVUI::SliderFloat(l, &g_bloom, 0.0f, 2.0f, "%.2f"); });
-        add("visual", "Bloom", "bloom_threshold", "Bloom Threshold", [](const char* l) { IVUI::SliderFloat(l, &g_bloomThreshold, 0.0f, 1.0f, "%.2f"); });
-        add("visual", "Bloom", "bloom_saturation", "Bloom Saturation", [](const char* l) { IVUI::SliderFloat(l, &g_bloomSaturation, 0.0f, 0.5f, "%.2f"); });
-        add("visual", "Bloom", "bloom_sigma", "Bloom Sigma", [](const char* l) { IVUI::SliderFloat(l, &g_bloomSigma, 0.5f, 3.0f, "%.2f"); });
-        add("visual", "", "night", "Night Mode", [](const char* l) { IVUI::Toggle(l, &g_nightMode); });
-        add("visual", "", "feature_hud", "Feature HUD", [](const char* l) { IVUI::Toggle(l, &g_statusHudEnabled); });
+        add("visual", "", "quality", "Quality", [](const char* l) { g_ui->widgets().SliderLabeled(l, &g_quality, { "Low", "Medium", "High", "Ultra" }); });
+        add("visual", "", "bloom", "Bloom Strength", [](const char* l) { g_ui->widgets().SliderFloat(l, &g_bloom, 0.0f, 2.0f, "%.2f"); });
+        add("visual", "Bloom", "bloom_threshold", "Bloom Threshold", [](const char* l) { g_ui->widgets().SliderFloat(l, &g_bloomThreshold, 0.0f, 1.0f, "%.2f"); });
+        add("visual", "Bloom", "bloom_saturation", "Bloom Saturation", [](const char* l) { g_ui->widgets().SliderFloat(l, &g_bloomSaturation, 0.0f, 0.5f, "%.2f"); });
+        add("visual", "Bloom", "bloom_sigma", "Bloom Sigma", [](const char* l) { g_ui->widgets().SliderFloat(l, &g_bloomSigma, 0.5f, 3.0f, "%.2f"); });
+        add("visual", "", "night", "Night Mode", [](const char* l) { g_ui->widgets().Toggle(l, &g_nightMode); });
+        add("visual", "", "feature_hud", "Feature HUD", [](const char* l) { g_ui->widgets().Toggle(l, &g_statusHudEnabled); });
 
-        add("visual", "Glass Effect", "glass_scrim", "Backdrop Dim", [](const char* l) { IVUI::SliderFloat(l, &g_scrimAlpha, 0.0f, 0.85f, "%.2f"); });
+        add("visual", "Glass Effect", "glass_scrim", "Backdrop Dim", [](const char* l) { g_ui->widgets().SliderFloat(l, &g_scrimAlpha, 0.0f, 0.85f, "%.2f"); });
 
         add("visual", "Notifications", "notify", "Fire Toast", [](const char*) {
-            if (IVUI::Button("Info", ImVec2(-1.0f, 0.0f), false))
-                IVUI::Toast(IVUI::ToastType::Info, "提示 Info", "这是一条信息通知");
-            if (IVUI::Button("Success", ImVec2(-1.0f, 0.0f), true))
-                IVUI::Toast(IVUI::ToastType::Success, "成功 Success", "操作已完成");
-            if (IVUI::Button("Warning", ImVec2(-1.0f, 0.0f), false))
-                IVUI::Toast(IVUI::ToastType::Warning, "警告 Warning", "请注意这个状态");
-            if (IVUI::Button("Error", ImVec2(-1.0f, 0.0f), false))
-                IVUI::Toast(IVUI::ToastType::Error, "错误 Error", "发生了一个错误");
+            if (g_ui->widgets().Button("Info", ImVec2(-1.0f, 0.0f), false))
+                g_ui->widgets().Toast(IVUI::ToastType::Info, "提示 Info", "这是一条信息通知");
+            if (g_ui->widgets().Button("Success", ImVec2(-1.0f, 0.0f), true))
+                g_ui->widgets().Toast(IVUI::ToastType::Success, "成功 Success", "操作已完成");
+            if (g_ui->widgets().Button("Warning", ImVec2(-1.0f, 0.0f), false))
+                g_ui->widgets().Toast(IVUI::ToastType::Warning, "警告 Warning", "请注意这个状态");
+            if (g_ui->widgets().Button("Error", ImVec2(-1.0f, 0.0f), false))
+                g_ui->widgets().Toast(IVUI::ToastType::Error, "错误 Error", "发生了一个错误");
         });
     }
 
@@ -241,7 +247,7 @@ namespace Demo
 
     static void Heading(const char* text)
     {
-        const IVUI::Theme& th = IVUI::GetTheme();
+        const IVUI::Theme& th = g_ui->theme().Current();
         ImDrawList* dl = ImGui::GetWindowDrawList();
         const ImVec2 c = ImGui::GetCursorScreenPos();
         IVUI::AddTextScaled(dl, c, th.Accent, text, th.FontSizeTitle, IVUI::GetTitleFont());
@@ -278,7 +284,7 @@ namespace Demo
             prevStyle = g_style;
         }
         IVUI::SetAccent(base, ImGui::ColorConvertFloat4ToU32(g_accent));
-        base.Scale = g_scale * IVUI::GetContentScale();
+        base.Scale = g_scale * g_ui->theme().ContentScale();
         base.RoundingPanel *= g_roundMul;
         base.RoundingControl *= g_roundMul;
         base.RoundingPill *= g_roundMul;
@@ -305,12 +311,12 @@ namespace Demo
         base.GlassLensBias = ImClamp(g_glassLensBias, 0.0f, 4.0f);
         base.GlassLensPower = ImClamp(g_glassLensPower, 0.1f, 4.0f);
         base.GlassNoise = ImClamp(g_glassNoise, 0.0f, 3.0f);
-        IVUI::SetTargetTheme(base);
+        g_ui->theme().SetTarget(base);
     }
 
     static void MainFeatureRow(const Feature& f)
     {
-        const IVUI::Theme& th = IVUI::GetTheme();
+        const IVUI::Theme& th = g_ui->theme().Current();
         const float S = th.Scale;
 
         if (g_editTarget.empty())
@@ -340,7 +346,12 @@ namespace Demo
         ImGui::SetCursorScreenPos(cursor);
         ImGui::InvisibleButton("grip", ImVec2(gutterW, rowH));
         const bool gripHov = ImGui::IsItemHovered();
-        IVUI::BeginFeatureDragSource(f.id.c_str(), f.name.c_str());
+        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None))
+        {
+            ImGui::SetDragDropPayload("IVUI_FEAT", f.id.c_str(), f.id.size() + 1);
+            IVUI::DrawDragGhost(f.name.c_str());
+            ImGui::EndDragDropSource();
+        }
         DrawGrip(dl, ImVec2(cursor.x + gutterW * 0.5f, cursor.y + rowH * 0.5f), gripHov ? th.Accent : th.TextMuted, S);
         { char tip[96]; snprintf(tip, sizeof(tip), "%s · 拖到面板", f.name.c_str()); IVUI::Tooltip(tip); }
 
@@ -359,7 +370,7 @@ namespace Demo
         const Feature* f = FindFeature(item.featureId);
         if (!f) return false;
         const std::string displayName = item.customName.empty() ? f->name : item.customName;
-        const IVUI::Theme& th = IVUI::GetTheme();
+        const IVUI::Theme& th = g_ui->theme().Current();
         const float S = th.Scale;
         ImGui::PushID(item.featureId.c_str());
 
@@ -458,7 +469,7 @@ namespace Demo
         Heading(cat.name.c_str());
         if (!g_editTarget.empty())
         {
-            if (IVUI::Button("+ Add whole category"))
+            if (g_ui->widgets().Button("+ Add whole category"))
                 AddCategoryToPanel(g_editTarget, cat.id);
         }
         for (auto& f : g_features)
@@ -473,7 +484,7 @@ namespace Demo
         for (const auto& grp : groups)
         {
             const int slot = gi++ % 8;
-            IVUI::Section(grp.c_str(), &g_grpOpen[slot], [&] {
+            g_ui->layouts().Section(grp.c_str(), &g_grpOpen[slot], [&] {
                 for (auto& f : g_features)
                     if (f.category == cat.id && f.group == grp)
                         MainFeatureRow(f);
@@ -484,45 +495,45 @@ namespace Demo
     static void RenderConfigTab()
     {
         Heading("Config");
-        IVUI::HotkeyInput("Menu Key", &g_menuKey);
-        IVUI::Combo("界面风格 Style", &g_style,
+        g_ui->widgets().HotkeyInput("Menu Key", &g_menuKey);
+        g_ui->widgets().Combo("界面风格 Style", &g_style,
                     { "Material You", "VAPE", "Neverlose", "ImGui Classic", "iOS Liquid Glass" });
         IVUI::Tooltip("切换整套视觉风格 · 切换会平滑形变");
-        IVUI::ColorPicker("Accent Color", &g_accent);
-        IVUI::ColorPicker("Glass Tint", &g_glassTint);
-        IVUI::SliderFloat("Glass Tint Mix", &g_glassTintStrength, 0.0f, 1.0f, "%.2f");
-        IVUI::SliderFloat("Glass Opacity", &g_glassOpacity, 0.05f, 1.0f, "%.2f");
-        IVUI::SliderFloat("Glass Refraction", &g_glassRefraction, 0.0f, 8.0f, "%.2f px");
-        IVUI::SliderFloat("Glass Edge Width", &g_glassEdgeWidth, 0.5f, 8.0f, "%.2f px");
-        IVUI::SliderFloat("Glass Rim Light", &g_glassEdgeHighlight, 0.0f, 1.0f, "%.2f");
-        IVUI::SliderFloat("Glass Thickness", &g_glassThickness, 0.0f, 1.0f, "%.2f");
-        IVUI::SliderFloat("Glass Shadow", &g_glassShadow, 0.0f, 1.0f, "%.2f");
-        IVUI::SliderFloat("Glass Shape Power", &g_glassShapePower, 2.0f, 8.0f, "%.2f");
-        IVUI::SliderFloat("Glass Lens Strength", &g_glassLensStrength, 0.0f, 4.0f, "%.2f");
-        IVUI::SliderFloat("Glass Lens Base", &g_glassLensBase, 1.01f, 8.0f, "%.2f");
-        IVUI::SliderFloat("Glass Lens Falloff", &g_glassLensFalloff, 0.1f, 12.0f, "%.2f");
-        IVUI::SliderFloat("Glass Lens Bias", &g_glassLensBias, 0.0f, 4.0f, "%.2f");
-        IVUI::SliderFloat("Glass Lens Power", &g_glassLensPower, 0.1f, 4.0f, "%.2f");
-        IVUI::SliderFloat("Glass Noise", &g_glassNoise, 0.0f, 3.0f, "%.2f px");
-        IVUI::SliderFloat("UI Scale", &g_scale, 0.8f, 1.4f, "%.2fx");
-        IVUI::SliderFloat("Roundness", &g_roundMul, 0.0f, 2.0f, "%.2f");
-        IVUI::SliderFloat("Glow", &g_glowMul, 0.0f, 2.5f, "%.2f");
-        IVUI::SliderFloat("Translucency", &g_translucencyMul, 0.3f, 1.2f, "%.2f");
-        IVUI::SliderFloat("Backdrop Blur", &g_backdropBlurSigma, 0.0f, 16.0f, "%.2f px");
-        IVUI::Section("Keybinds (primary + secondary + mode)", &g_cfgKeybinds, [] {
-            IVUI::KeybindRow("Aimbot", &g_kbAim);
-            IVUI::KeybindRow("ESP", &g_kbEsp);
-            IVUI::KeybindRow("Panic", &g_kbPanic);
+        g_ui->widgets().ColorPicker("Accent Color", &g_accent);
+        g_ui->widgets().ColorPicker("Glass Tint", &g_glassTint);
+        g_ui->widgets().SliderFloat("Glass Tint Mix", &g_glassTintStrength, 0.0f, 1.0f, "%.2f");
+        g_ui->widgets().SliderFloat("Glass Opacity", &g_glassOpacity, 0.05f, 1.0f, "%.2f");
+        g_ui->widgets().SliderFloat("Glass Refraction", &g_glassRefraction, 0.0f, 8.0f, "%.2f px");
+        g_ui->widgets().SliderFloat("Glass Edge Width", &g_glassEdgeWidth, 0.5f, 8.0f, "%.2f px");
+        g_ui->widgets().SliderFloat("Glass Rim Light", &g_glassEdgeHighlight, 0.0f, 1.0f, "%.2f");
+        g_ui->widgets().SliderFloat("Glass Thickness", &g_glassThickness, 0.0f, 1.0f, "%.2f");
+        g_ui->widgets().SliderFloat("Glass Shadow", &g_glassShadow, 0.0f, 1.0f, "%.2f");
+        g_ui->widgets().SliderFloat("Glass Shape Power", &g_glassShapePower, 2.0f, 8.0f, "%.2f");
+        g_ui->widgets().SliderFloat("Glass Lens Strength", &g_glassLensStrength, 0.0f, 4.0f, "%.2f");
+        g_ui->widgets().SliderFloat("Glass Lens Base", &g_glassLensBase, 1.01f, 8.0f, "%.2f");
+        g_ui->widgets().SliderFloat("Glass Lens Falloff", &g_glassLensFalloff, 0.1f, 12.0f, "%.2f");
+        g_ui->widgets().SliderFloat("Glass Lens Bias", &g_glassLensBias, 0.0f, 4.0f, "%.2f");
+        g_ui->widgets().SliderFloat("Glass Lens Power", &g_glassLensPower, 0.1f, 4.0f, "%.2f");
+        g_ui->widgets().SliderFloat("Glass Noise", &g_glassNoise, 0.0f, 3.0f, "%.2f px");
+        g_ui->widgets().SliderFloat("UI Scale", &g_scale, 0.8f, 1.4f, "%.2fx");
+        g_ui->widgets().SliderFloat("Roundness", &g_roundMul, 0.0f, 2.0f, "%.2f");
+        g_ui->widgets().SliderFloat("Glow", &g_glowMul, 0.0f, 2.5f, "%.2f");
+        g_ui->widgets().SliderFloat("Translucency", &g_translucencyMul, 0.3f, 1.2f, "%.2f");
+        g_ui->widgets().SliderFloat("Backdrop Blur", &g_backdropBlurSigma, 0.0f, 16.0f, "%.2f px");
+        g_ui->layouts().Section("Keybinds (primary + secondary + mode)", &g_cfgKeybinds, [] {
+            g_ui->widgets().KeybindRow("Aimbot", &g_kbAim);
+            g_ui->widgets().KeybindRow("ESP", &g_kbEsp);
+            g_ui->widgets().KeybindRow("Panic", &g_kbPanic);
         });
-        IVUI::Toggle("Streamproof", &g_streamproof);
-        if (IVUI::Button("Save Config")) {}
+        g_ui->widgets().Toggle("Streamproof", &g_streamproof);
+        if (g_ui->widgets().Button("Save Config")) {}
         ImGui::SameLine();
-        if (IVUI::Button("Load Config")) {}
+        if (g_ui->widgets().Button("Load Config")) {}
     }
 
     static void RenderAddBanner()
     {
-        const IVUI::Theme& th = IVUI::GetTheme();
+        const IVUI::Theme& th = g_ui->theme().Current();
         const float S = th.Scale;
         std::string name;
         for (auto& p : g_panels) if (p.id == g_editTarget) name = p.name;
@@ -537,7 +548,7 @@ namespace Demo
         IVUI::AddTextScaled(dl, ImVec2(c.x + 10.0f * S, c.y + (h - ts.y) * 0.5f), th.Text, msg.c_str(), th.FontSizeLabel);
         const float bw = 80.0f * S, bh = th.ControlHeight * S * 0.6f;
         ImGui::SetCursorScreenPos(ImVec2(c.x + w - bw - 6.0f * S, c.y + (h - bh) * 0.5f));
-        if (IVUI::Button("完成##adddone", ImVec2(bw, bh), true))
+        if (g_ui->widgets().Button("完成##adddone", ImVec2(bw, bh), true))
             g_editTarget.clear();
         ImGui::SetCursorScreenPos(c);
         ImGui::Dummy(ImVec2(w, h + 8.0f * S));
@@ -561,8 +572,8 @@ namespace Demo
             std::string dropFeat; int dropIdx = -1;   // drag-add: feature id + insertion index
             int rFrom = -1, rTo = -1;                  // reorder: from index + insertion index
 
-            IVUI::Panel(label.c_str(), p->pos, ImVec2(260.0f, 520.0f), [&] {
-                const IVUI::Theme& th = IVUI::GetTheme();
+            g_ui->layouts().Panel(label.c_str(), p->pos, ImVec2(260.0f, 520.0f), [&] {
+                const IVUI::Theme& th = g_ui->theme().Current();
                 const float S = th.Scale;
                 ImDrawList* dl = ImGui::GetWindowDrawList();
 
@@ -657,22 +668,23 @@ namespace Demo
             if (hdr.closeClicked)
             {
                 g_pendingDelete = p->id;
-                IVUI::OpenConfirm("##ivui_delpanel");
+                g_ui->widgets().OpenConfirm("##ivui_delpanel");
             }
         }
 
-        if (IVUI::ConfirmPopup("##ivui_delpanel", "删除这个面板?", "删除", "取消"))
+        if (g_ui->widgets().ConfirmPopup("##ivui_delpanel", "删除这个面板?", "删除", "取消"))
         {
             if (g_editTarget == g_pendingDelete) g_editTarget.clear();
             g_panels.erase(std::remove_if(g_panels.begin(), g_panels.end(),
                            [](const UserPanel& x) { return x.id == g_pendingDelete; }), g_panels.end());
             g_pendingDelete.clear();
-            IVUI::Toast(IVUI::ToastType::Info, "面板已移除", "Panel removed");
+            g_ui->widgets().Toast(IVUI::ToastType::Info, "面板已移除", "Panel removed");
         }
     }
 
-    void RenderMenu(bool* open)
+    void RenderMenu(IVUI::UI& ui, bool* open)
     {
+        g_ui = &ui;
         RegisterFeatures();
         ApplyTheme();
 
@@ -680,11 +692,11 @@ namespace Demo
             if (ImGui::IsKeyPressed((ImGuiKey)(ImGuiKey_1 + i)))
             {
                 g_style = i;
-                IVUI::Toast(IVUI::ToastType::Success, "风格已切换", IVUI::StyleName((IVUI::Style)i), 8.0f);
-                IVUI::Toast(IVUI::ToastType::Info, "Notification", "Hello from this style", 8.0f);
+                g_ui->widgets().Toast(IVUI::ToastType::Success, "风格已切换", IVUI::StyleName((IVUI::Style)i), 8.0f);
+                g_ui->widgets().Toast(IVUI::ToastType::Info, "Notification", "Hello from this style", 8.0f);
             }
 
-        const IVUI::Theme& th0 = IVUI::GetTheme();
+        const IVUI::Theme& th0 = g_ui->theme().Current();
         const float S0 = th0.Scale;
         const ImGuiViewport* vp = ImGui::GetMainViewport();
 
@@ -707,15 +719,13 @@ namespace Demo
             if (g_speedhack) chips.push_back("Speed Hack");
             if (!chips.empty())
             {
-                IVUI::StatusList(ImVec2(vp->Pos.x + vp->Size.x - 16.0f * S0,
-                                        vp->Pos.y + 16.0f * S0), chips.data(), (int)chips.size());
+                g_ui->layouts().StatusList(ImVec2(vp->Pos.x + vp->Size.x - 16.0f * S0,
+                                                  vp->Pos.y + 16.0f * S0), chips.data(), (int)chips.size());
             }
         }
 
-        IVUI::RenderToasts();
-
         const float visTarget = *open ? 1.0f : 0.0f;
-        g_menuVis += (visTarget - g_menuVis) * ImClamp(IVUI::DeltaTime() * 10.0f, 0.0f, 1.0f);
+        g_menuVis += (visTarget - g_menuVis) * ImClamp(ImGui::GetIO().DeltaTime * 10.0f, 0.0f, 1.0f);
         if (ImFabs(g_menuVis - visTarget) < 0.003f) g_menuVis = visTarget;
         if (g_menuVis < 0.003f)
             return;
@@ -728,9 +738,9 @@ namespace Demo
                 vp->Pos, ImVec2(vp->Pos.x + vp->Size.x, vp->Pos.y + vp->Size.y),
                 IVUI::WithAlphaMul(th0.Overlay, g_scrimAlpha * th0.BackdropAlpha * g_menuVis));
 
-        IVUI::PushTheme(IVUI::ScaleThemeAlpha(IVUI::GetTheme(), g_menuVis));
+        g_ui->theme().Push(IVUI::ScaleThemeAlpha(g_ui->theme().Current(), g_menuVis));
 
-        const IVUI::Theme& th = IVUI::GetTheme();
+        const IVUI::Theme& th = g_ui->theme().Current();
         const float S = th.Scale;
         const float pad = th.PanelPadding.x * S;
         const float titleH = th.ControlHeight * S;
@@ -757,12 +767,24 @@ namespace Demo
             // Submit the backdrop before ImGui so it remains beneath menu content.
             const float mround = th.RoundingPanel * S;
             {
-                IVUI::GlassRect g;
-                g.min = wpos; g.max = wpos + wsize;
+                IVUI::BlurEffectParams blur;
+                blur.bounds.min = {wpos.x, wpos.y};
+                blur.bounds.max = {wpos.x + wsize.x, wpos.y + wsize.y};
+                blur.sigma = th.BackdropBlurSigma;
+                blur.rounding = mround;
+                blur.opacity = g_menuVis;
+                g_ui->effects().Submit(IVUI::EffectRequest::BackdropBlur(blur));
+
+                IVUI::GlassEffectParams g;
+                g.bounds.min = {wpos.x, wpos.y};
+                g.bounds.max = {wpos.x + wsize.x, wpos.y + wsize.y};
                 g.rounding = mround;
                 g.opacity = th.GlassOpacity * g_menuVis;
-                g.tint = th.GlassTint; g.tintStrength = th.GlassTintStrength;
-                g.accent = th.Accent;
+                const ImVec4 tint = ImGui::ColorConvertU32ToFloat4(th.GlassTint);
+                const ImVec4 accent = ImGui::ColorConvertU32ToFloat4(th.Accent);
+                g.tint = {tint.x, tint.y, tint.z, tint.w}; g.tintStrength = th.GlassTintStrength;
+                g.accent = {accent.x, accent.y, accent.z, accent.w};
+                g.blurSigma = th.BackdropBlurSigma;
                 g.refraction = th.GlassRefraction * S;
                 g.edgeWidth = th.GlassEdgeWidth * S;
                 g.edgeHighlight = th.GlassEdgeHighlight;
@@ -776,7 +798,7 @@ namespace Demo
                 g.noise = th.GlassNoise * S;
                 g.glowStrength = th.PanelGlow * g_menuVis; g.glowSpread = th.PanelGlowSpread * S;
                 g.shadowStrength = th.PanelShadow * g_menuVis; g.shadowSpread = th.PanelShadowSpread * S;
-                IVUI::SubmitGlass(g);
+                g_ui->effects().Glass(g);
             }
             if (th.BorderThickness > 0.01f)
                 dl->AddRect(wpos, wpos + wsize, th.Border, mround, 0, th.BorderThickness * S);
@@ -797,15 +819,15 @@ namespace Demo
             {
                 ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 6.0f * S));
                 for (int i = 0; i < (int)g_categories.size(); ++i)
-                    IVUI::Tab(g_categories[i].name.c_str(), g_categories[i].icon, i, &g_tab);
-                IVUI::Tab("Config", IVUI::IconType::Gear, (int)g_categories.size(), &g_tab);
+                    g_ui->layouts().Tab(g_categories[i].name.c_str(), g_categories[i].icon, i, &g_tab);
+                g_ui->layouts().Tab("Config", IVUI::IconType::Gear, (int)g_categories.size(), &g_tab);
                 ImGui::PopStyleVar();
 
                 ImGui::Dummy(ImVec2(0.0f, 10.0f * S));
-                if (IVUI::Button("+ New Panel", ImVec2(-1.0f, 0.0f), true))
+                if (g_ui->widgets().Button("+ New Panel", ImVec2(-1.0f, 0.0f), true))
                 {
                     CreatePanel(vp, S);
-                    IVUI::Toast(IVUI::ToastType::Success, "面板已创建", g_panels.back().name.c_str());
+                    g_ui->widgets().Toast(IVUI::ToastType::Success, "面板已创建", g_panels.back().name.c_str());
                 }
                 IVUI::Tooltip("新建一个自定义面板 · 双击面板标题可重命名");
             }
@@ -825,23 +847,23 @@ namespace Demo
                     shownTab = g_tab;
                 if (shownTab != g_tab)
                 {
-                    tabFade = ImMax(0.0f, tabFade - IVUI::DeltaTime() * 8.0f);
+                    tabFade = ImMax(0.0f, tabFade - ImGui::GetIO().DeltaTime * 8.0f);
                     if (tabFade <= 0.001f)
                         shownTab = g_tab;
                 }
                 else
                 {
-                    tabFade = ImMin(1.0f, tabFade + IVUI::DeltaTime() * 8.0f);
+                    tabFade = ImMin(1.0f, tabFade + ImGui::GetIO().DeltaTime * 8.0f);
                 }
                 const float tp = IVUI::EaseValue(0.0f, 1.0f, tabFade, IVUI::EASE_IN_OUT_SINE);
-                IVUI::PushTheme(IVUI::ScaleThemeAlpha(IVUI::GetTheme(), tp));
+                g_ui->theme().Push(IVUI::ScaleThemeAlpha(g_ui->theme().Current(), tp));
                 if (shownTab < (int)g_categories.size())
                     RenderCategoryContent(g_categories[shownTab]);
                 else
                     RenderConfigTab();
-                IVUI::PopTheme();
+                g_ui->theme().Pop();
                 ImGui::PopStyleVar();
-                IVUI::OverlayScrollbar();
+                g_ui->layouts().OverlayScrollbar();
             }
             ImGui::EndChild();
         }
@@ -849,6 +871,6 @@ namespace Demo
 
         RenderCustomPanels(vp, S);
 
-        IVUI::PopTheme();
+        g_ui->theme().Pop();
     }
 }

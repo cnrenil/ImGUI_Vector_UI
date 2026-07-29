@@ -7,9 +7,25 @@
 #include "ImGuiVectorUI/Core/AnimState.h"
 #include "ImGuiVectorUI/Theme/Theme.h"
 
+#include <array>
+#include <string>
 #include <vector>
 namespace IVUI
 {
+    class IEffectRenderer;
+    enum class ToastType;
+
+    struct ToastState
+    {
+        ToastType type{};
+        std::string title;
+        std::string body;
+        float duration = 4.0f;
+        float age = 0.0f;
+        float visibility = 0.0f;
+        bool alive = true;
+    };
+
     struct Context
     {
         AnimRegistry       anim;
@@ -23,12 +39,19 @@ namespace IVUI
         ImFont*            fontTitle = nullptr;
         bool               wantCaptureHotkey = false; ///<  a HotkeyInput is capturing this frame
         float              contentScale = 1.0f;       ///<  DPI scale from the host
+        IEffectRenderer*    effectRenderer = nullptr; ///< borrowed from the owning UI
+        ImGuiID            keyCaptureId = 0;
+        int                keyCaptureSlot = -1;
+        ImGuiID            panelRenameId = 0;
+        bool               panelRenameFocus = false;
+        std::array<char, 160> dropBuffer{};
+        std::vector<ToastState> toasts;
     };
 
-    /** @brief Creates the library context after the ImGui backend is initialized. */
-    void     CreateContext();
-    /** @brief Releases all library-owned state before destroying the ImGui context. */
-    void     DestroyContext();
+    /** Internal lifecycle used by UI. */
+    Context* CreateContext();
+    void     DestroyContext(Context* context = nullptr);
+    Context* SetCurrentContext(Context* context);
     /** @brief Advances library state once per frame, immediately after ImGui::NewFrame(). */
     void     NewFrame();
     /** @brief Returns the active IVUI context.

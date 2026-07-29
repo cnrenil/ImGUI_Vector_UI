@@ -1,6 +1,7 @@
 #include "ImGuiVectorUI/Widgets/Toast.h"
 
 #include "ImGuiVectorUI/Core/Motion.h"
+#include "ImGuiVectorUI/Core/Context.h"
 #include "ImGuiVectorUI/Theme/Theme.h"
 #include "ImGuiVectorUI/Drawing/DrawText.h"
 #include "ImGuiVectorUI/Drawing/Primitives.h"
@@ -14,18 +15,13 @@
 
 namespace IVUI
 {
-    struct ToastItem
+    static std::vector<ToastState>* Toasts()
     {
-        ToastType   type;
-        std::string title;
-        std::string body;
-        float       duration;     // total visible seconds (excludes fades)
-        float       age = 0.0f;   // seconds elapsed (paused while hovered)
-        float       vis = 0.0f;   // 0..1 eased presence (drives slide + fade)
-        bool        alive = true; // cleared once fully hidden
-    };
-
-    static std::vector<ToastItem> g_toasts;
+        Context* context = GetContext();
+        if (context == nullptr)
+            return nullptr;
+        return &context->toasts;
+    }
 
     static ImU32 TypeColor(ToastType t)
     {
@@ -53,22 +49,25 @@ namespace IVUI
 
     void Toast(ToastType type, const char* title, const char* body, float seconds)
     {
-        ToastItem it;
+        ToastState it;
         it.type = type;
         it.title = title ? title : "";
         it.body = body ? body : "";
         it.duration = seconds > 0.1f ? seconds : 0.1f;
-        g_toasts.push_back(std::move(it));
+        if (std::vector<ToastState>* toasts = Toasts())
+            toasts->push_back(std::move(it));
     }
 
     void ClearToasts()
     {
-        g_toasts.clear();
+        if (Context* context = GetContext())
+            context->toasts.clear();
     }
 
     void RenderToasts()
     {
-        if (g_toasts.empty())
+        std::vector<ToastState>* toasts = Toasts();
+        if (toasts == nullptr || toasts->empty())
             return;
 
         const Theme& th = GetTheme();
@@ -92,9 +91,9 @@ namespace IVUI
         {
             const float cx = vp->Pos.x + vp->Size.x * 0.5f;
             float iy = vp->Pos.y + margin;
-            for (int i = (int)g_toasts.size() - 1; i >= 0; --i)
+            for (int i = (int)toasts->size() - 1; i >= 0; --i)
             {
-                ToastItem& it = g_toasts[i];
+                ToastState& it = (*toasts)[i];
                 const ImVec2 titleSz = CalcTextScaled(it.title.c_str(), th.FontSizeLabel, GetTitleFont());
                 const bool hasBody = !it.body.empty();
                 const ImVec2 bodySz = hasBody ? CalcTextScaled(it.body.c_str(), th.FontSizeSmall) : ImVec2(0, 0);
@@ -112,10 +111,10 @@ namespace IVUI
                     it.age += dt;
                 if (it.age >= it.duration)
                     it.alive = false;
-                it.vis = ImLerp(it.vis, it.alive ? 1.0f : 0.0f, 1.0f - expf(-11.0f * dt));
+                it.visibility = ImLerp(it.visibility, it.alive ? 1.0f : 0.0f, 1.0f - expf(-11.0f * dt));
 
-                const float e = EaseValue(0.0f, 1.0f, ImClamp(it.vis, 0.0f, 1.0f), EASE_OUT_CUBIC);
-                const float alpha = ImClamp(it.vis, 0.0f, 1.0f);
+                const float e = EaseValue(0.0f, 1.0f, ImClamp(it.visibility, 0.0f, 1.0f), EASE_OUT_CUBIC);
+                const float alpha = ImClamp(it.visibility, 0.0f, 1.0f);
                 const float sc = 0.7f + 0.3f * e;         // expand from a small pill
                 const float w = capW * sc, h = capH * sc;
                 const float drop = (1.0f - e) * 14.0f * S;
@@ -147,15 +146,15 @@ namespace IVUI
                 }
                 iy = cmax.y + spacing;
             }
-            for (int i = (int)g_toasts.size() - 1; i >= 0; --i)
-                if (!g_toasts[i].alive && g_toasts[i].vis < 0.02f)
-                    g_toasts.erase(g_toasts.begin() + i);
+            for (int i = (int)toasts->size() - 1; i >= 0; --i)
+                if (!(*toasts)[i].alive && (*toasts)[i].visibility < 0.02f)
+                    toasts->erase(toasts->begin() + i);
             return;
         }
 
-        for (int i = (int)g_toasts.size() - 1; i >= 0; --i)
+        for (int i = (int)toasts->size() - 1; i >= 0; --i)
         {
-            ToastItem& it = g_toasts[i];
+            ToastState& it = (*toasts)[i];
 
             const ImVec2 titleSz = CalcTextScaled(it.title.c_str(), th.FontSizeLabel, GetTitleFont());
             const bool hasBody = !it.body.empty();
@@ -175,10 +174,10 @@ namespace IVUI
                 it.alive = false;
 
             const float target = it.alive ? 1.0f : 0.0f;
-            it.vis = ImLerp(it.vis, target, 1.0f - expf(-11.0f * dt));
+            it.visibility = ImLerp(it.visibility, target, 1.0f - expf(-11.0f * dt));
 
-            const float e = EaseValue(0.0f, 1.0f, ImClamp(it.vis, 0.0f, 1.0f), EASE_OUT_CUBIC);
-            const float alpha = ImClamp(it.vis, 0.0f, 1.0f);
+            const float e = EaseValue(0.0f, 1.0f, ImClamp(it.visibility, 0.0f, 1.0f), EASE_OUT_CUBIC);
+            const float alpha = ImClamp(it.visibility, 0.0f, 1.0f);
             const float slide = (1.0f - e) * 44.0f * S;
             const ImVec2 cmin(cardMinFull.x + slide, cardMinFull.y);
             const ImVec2 cmax(cardMaxFull.x + slide, cardMaxFull.y);
@@ -218,8 +217,8 @@ namespace IVUI
         }
 
         // Erase after traversal so references remain valid for the current frame.
-        for (int i = (int)g_toasts.size() - 1; i >= 0; --i)
-            if (!g_toasts[i].alive && g_toasts[i].vis < 0.02f)
-                g_toasts.erase(g_toasts.begin() + i);
+        for (int i = (int)toasts->size() - 1; i >= 0; --i)
+            if (!(*toasts)[i].alive && (*toasts)[i].visibility < 0.02f)
+                toasts->erase(toasts->begin() + i);
     }
 }
