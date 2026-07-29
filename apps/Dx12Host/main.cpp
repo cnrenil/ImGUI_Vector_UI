@@ -162,6 +162,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
     exeDir = exeDir.substr(0, exeDir.find_last_of("\\/") + 1);
     const std::string unifontPath = exeDir + "unifont.otf";
     const bool haveUnifont = (::GetFileAttributesA(unifontPath.c_str()) != INVALID_FILE_ATTRIBUTES);
+    const auto unifontLoaded = std::make_shared<bool>(false);
 
     std::string effectError;
     auto effects = IVUI::DX12::EffectRenderer::Create(
@@ -182,7 +183,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
             g_pd3dSrvDescHeap, UiSrvDescriptorAlloc, UiSrvDescriptorFree, nullptr});
     uiConfig.effects = std::move(effects);
     uiConfig.contentScale = ImGui_ImplWin32_GetDpiScaleForHwnd(hwnd);
-    uiConfig.configureFonts = [haveUnifont, unifontPath](ImGuiIO& io, ImFont*& regular, ImFont*& title)
+    uiConfig.configureFonts = [haveUnifont, unifontPath, unifontLoaded](
+        ImGuiIO& io, ImFont*& regular, ImFont*& title)
     {
         ImGuiStyle& style = ImGui::GetStyle();
         style.WindowRounding = 10.0f; style.ChildRounding = 8.0f;
@@ -192,23 +194,35 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
         style.WindowPadding = {};
         style.Colors[ImGuiCol_WindowBg] = style.Colors[ImGuiCol_ChildBg] =
             style.Colors[ImGuiCol_Border] = ImVec4(0, 0, 0, 0);
-        auto mergeUnifont = [&]() {
-            if (!haveUnifont) return;
-            ImFontConfig config; config.MergeMode = true;
-            io.Fonts->AddFontFromFileTTF(unifontPath.c_str(), 16.0f, &config);
+        auto mergeUnifont = [&](float size) {
+            if (!haveUnifont) return false;
+            ImFontConfig config;
+            config.MergeMode = true;
+            config.PixelSnapH = true;
+            return io.Fonts->AddFontFromFileTTF(
+                unifontPath.c_str(), size, &config,
+                io.Fonts->GetGlyphRangesChineseFull()) != nullptr;
         };
         ImFontConfig base; base.OversampleH = 3; base.PixelSnapH = true;
         regular = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeui.ttf", 18.0f, &base);
         if (!regular) regular = io.Fonts->AddFontDefault();
-        mergeUnifont();
+        const bool regularMerged = mergeUnifont(18.0f);
         title = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeuib.ttf", 20.0f, &base);
         if (!title) title = regular;
-        mergeUnifont();
+        const bool titleMerged = mergeUnifont(20.0f);
+        *unifontLoaded = regularMerged && titleMerged;
     };
     std::string uiError;
     g_ui = IVUI::UI::Create(std::move(uiConfig), &uiError);
-    if (!g_ui)
+    if (!g_ui || !*unifontLoaded)
     {
+        const std::string message = !g_ui
+            ? (uiError.empty() ? "IVUI initialization failed." : uiError)
+            : (haveUnifont ? "Unifont could not be parsed or merged into the font atlas."
+                           : "unifont.otf was not found beside ImGuiVectorUIDemo.exe.");
+        ::MessageBoxA(hwnd, message.c_str(), "ImGuiVectorUI font initialization",
+                      MB_OK | MB_ICONERROR);
+        g_ui.reset();
         CleanupDeviceD3D();
         ::DestroyWindow(hwnd);
         ::UnregisterClassW(wc.lpszClassName, wc.hInstance);

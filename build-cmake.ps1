@@ -10,6 +10,8 @@ param(
     [switch]$NoDemo,
     [switch]$NoTests,
     [switch]$Vulkan,
+    [switch]$VerifyPackage,
+    [switch]$ComponentOnly,
 
     [string]$VisualStudioRoot = 'A:\Program Files\Microsoft Visual Studio\2022\Professional',
     [string]$MsvcVersion = '14.44.35207',
@@ -39,6 +41,14 @@ function Invoke-Native {
 }
 
 $RepositoryRoot = $PSScriptRoot
+$SourceDirectory = if ($ComponentOnly) {
+    Join-Path $RepositoryRoot 'components\ImGuiVectorUI'
+} else {
+    $RepositoryRoot
+}
+if ($VerifyPackage -and [string]::IsNullOrWhiteSpace($InstallPrefix)) {
+    throw '-VerifyPackage requires -InstallPrefix.'
+}
 if ([string]::IsNullOrWhiteSpace($BuildDirectory)) {
     $BuildDirectory = Join-Path $RepositoryRoot "out\cmake-$($Configuration.ToLowerInvariant())"
 } elseif (-not [System.IO.Path]::IsPathRooted($BuildDirectory)) {
@@ -55,7 +65,7 @@ $CTest = Join-Path $VisualStudioRoot 'Common7\IDE\CommonExtensions\Microsoft\CMa
 $NMake = Join-Path $MsvcBinaryRoot 'nmake.exe'
 
 Assert-Path $RepositoryRoot 'Repository root'
-Assert-Path (Join-Path $RepositoryRoot 'CMakeLists.txt') 'CMake project'
+Assert-Path (Join-Path $SourceDirectory 'CMakeLists.txt') 'CMake project'
 Assert-Path $CMake 'Visual Studio CMake'
 Assert-Path $CTest 'Visual Studio CTest'
 Assert-Path $NMake 'NMake'
@@ -87,7 +97,7 @@ $env:CMAKE_GENERATOR = 'NMake Makefiles'
 # stream; localized MSVC output can be decoded with a mismatched console code page.
 $env:VSLANG = '1033'
 
-$BuildDemo = if ($NoDemo) { 'OFF' } else { 'ON' }
+$BuildDemo = if ($NoDemo -or $ComponentOnly) { 'OFF' } else { 'ON' }
 $BuildTests = if ($NoTests) { 'OFF' } else { 'ON' }
 $BuildVulkan = if ($Vulkan) { 'ON' } else { 'OFF' }
 $CMakeNMake = $NMake.Replace('\', '/')
@@ -98,7 +108,7 @@ $CMakeMt = (Join-Path $SdkBinaryRoot 'mt.exe').Replace('\', '/')
 # This SDK/VS installation is not registered. Explicit compiler/tool paths keep
 # CMake from consulting the missing registry entries during compiler detection.
 $ConfigureArguments = @(
-    '-S', $RepositoryRoot,
+    '-S', $SourceDirectory,
     '-B', $BuildDirectory,
     '-G', 'NMake Makefiles',
     "-DCMAKE_BUILD_TYPE=$Configuration",
@@ -106,13 +116,17 @@ $ConfigureArguments = @(
     "-DCMAKE_CXX_COMPILER=$CMakeCompiler",
     "-DCMAKE_RC_COMPILER=$CMakeRc",
     "-DCMAKE_MT=$CMakeMt",
-    "-DIVUI_BUILD_DEMO=$BuildDemo",
+    "-DIVUI_IMGUI_SOURCE_DIR=$($RepositoryRoot.Replace('\', '/'))/third_party/imgui",
     '-DIVUI_BUILD_WIN32_PLATFORM=ON',
     '-DIVUI_BUILD_DX11_EFFECTS=ON',
     '-DIVUI_BUILD_DX12_EFFECTS=ON',
     "-DIVUI_BUILD_VULKAN_EFFECTS=$BuildVulkan",
     "-DIVUI_BUILD_TESTS=$BuildTests"
 )
+
+if (-not $ComponentOnly) {
+    $ConfigureArguments += "-DIVUI_BUILD_DEMO=$BuildDemo"
+}
 
 if ($CMakeArguments) {
     $ConfigureArguments += $CMakeArguments
@@ -175,6 +189,33 @@ if (-not [string]::IsNullOrWhiteSpace($InstallPrefix)) {
     }
     Write-Host "Installing to $InstallPrefix"
     Invoke-Native $CMake @('--install', $BuildDirectory, '--prefix', $InstallPrefix)
+}
+
+if ($VerifyPackage) {
+    $ConsumerSource = Join-Path $RepositoryRoot 'tests\package-consumer'
+    $ConsumerBuild = "$BuildDirectory-package-consumer"
+    $PackageDirectory = Join-Path $InstallPrefix 'lib\cmake\ImGuiVectorUI'
+    Assert-Path (Join-Path $ConsumerSource 'CMakeLists.txt') 'Package consumer'
+    Assert-Path (Join-Path $PackageDirectory 'ImGuiVectorUIConfig.cmake') 'Installed package'
+
+    if ($Clean -and (Test-Path -LiteralPath $ConsumerBuild)) {
+        Remove-Item -LiteralPath $ConsumerBuild -Recurse -Force
+    }
+
+    $ConsumerArguments = @(
+        '-S', $ConsumerSource,
+        '-B', $ConsumerBuild,
+        '-G', 'NMake Makefiles',
+        "-DCMAKE_BUILD_TYPE=$Configuration",
+        "-DCMAKE_MAKE_PROGRAM=$CMakeNMake",
+        "-DCMAKE_CXX_COMPILER=$CMakeCompiler",
+        "-DCMAKE_RC_COMPILER=$CMakeRc",
+        "-DCMAKE_MT=$CMakeMt",
+        "-DImGuiVectorUI_DIR=$($PackageDirectory.Replace('\', '/'))"
+    )
+    Write-Host 'Verifying installed package consumer'
+    Invoke-Native $CMake $ConsumerArguments
+    Invoke-Native $CMake @('--build', $ConsumerBuild)
 }
 
 Write-Host 'Build completed successfully.'

@@ -22,6 +22,20 @@ Self-drawn interactive controls participate in Dear ImGui keyboard/gamepad navig
 All mutable library state belongs to the owning `UI`; multiple instances may be used
 serially on their creation thread.
 
+## Repository Layout
+
+```text
+components/ImGuiVectorUI/  Standalone component, public API, backends and tests
+apps/Dx12Host/             Win32/DX12 example host and its runtime assets
+tests/package-consumer/    Minimal installed-package consumer
+third_party/imgui/         Workspace-provided Dear ImGui dependency
+```
+
+The root CMake project only selects workspace options and composes these parts. The
+component has its own `CMakeLists.txt`, package configuration, shaders, tests, license
+and integration guide, so it can move into another repository without carrying the
+demo or workspace build policy.
+
 ## Build
 
 For this repository's relocated, registry-less Visual Studio installation on `A:`,
@@ -32,23 +46,61 @@ Debug CRT paths explicitly:
 .\build-cmake.ps1 -Clean
 .\build-cmake.ps1 -Configuration Debug
 .\build-cmake.ps1 -Configuration Release -InstallPrefix out\stage
+.\build-cmake.ps1 -Configuration Release -InstallPrefix out\stage -VerifyPackage
+.\build-cmake.ps1 -ComponentOnly -NoDemo -BuildDirectory out\component
 ```
 
-Useful switches are `-NoDemo`, `-NoTests`, `-Vulkan` and `-BuildDirectory`. Tool
-locations can be overridden with `-VisualStudioRoot`, `-MsvcVersion`,
+Useful switches are `-NoDemo`, `-NoTests`, `-Vulkan`, `-ComponentOnly` and
+`-BuildDirectory`. Tool locations can be overridden with `-VisualStudioRoot`, `-MsvcVersion`,
 `-WindowsSdkRoot` and `-WindowsSdkVersion`. Extra cache entries can be supplied with
-`-CMakeArguments '-DNAME=VALUE'`.
+`-CMakeArguments '-DNAME=VALUE'`. `-VerifyPackage` builds the independent consumer
+against the installed package and requires `-InstallPrefix`.
 
 On a normally registered development environment, standard CMake commands remain
 available:
 
 ```powershell
-cmake -S . -B build \
-  -DIVUI_BUILD_DEMO=ON \
-  -DIVUI_BUILD_DX11_EFFECTS=ON \
+cmake -S . -B build `
+  -DIVUI_BUILD_DEMO=ON `
+  -DIVUI_BUILD_DX11_EFFECTS=ON `
   -DIVUI_BUILD_DX12_EFFECTS=ON
 cmake --build build --config Release
 ctest --test-dir build -C Release --output-on-failure
+```
+
+The component can also be configured independently:
+
+```powershell
+cmake -S components/ImGuiVectorUI -B out/component `
+  -DIVUI_IMGUI_SOURCE_DIR="$PWD/third_party/imgui" `
+  -DIVUI_BUILD_TESTS=ON
+cmake --build out/component --config Release
+ctest --test-dir out/component -C Release --output-on-failure
+```
+
+## Use From Another Project
+
+When vendoring the component, provide an existing `imgui` or `imgui::imgui` target,
+or set `IVUI_IMGUI_SOURCE_DIR` before adding the component:
+
+```cmake
+set(IVUI_IMGUI_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui")
+set(IVUI_BUILD_DX12_EFFECTS ON)
+set(IVUI_BUILD_WIN32_PLATFORM ON)
+add_subdirectory(vendor/ImGuiVectorUI)
+
+target_link_libraries(my_app PRIVATE
+    ImGuiVectorUI::ImGuiVectorUI
+    ImGuiVectorUI::PlatformWin32
+    ImGuiVectorUI::RendererDX12)
+```
+
+Embedded builds default all native backends and install rules to `OFF`. Installed
+packages use the same target names:
+
+```cmake
+find_package(ImGuiVectorUI 1 CONFIG REQUIRED)
+target_link_libraries(my_app PRIVATE ImGuiVectorUI::ImGuiVectorUI)
 ```
 
 Vulkan is optional and requires a Vulkan SDK containing `glslangValidator`:
@@ -58,8 +110,10 @@ cmake -S . -B build-vulkan -DIVUI_BUILD_DEMO=OFF -DIVUI_BUILD_VULKAN_EFFECTS=ON
 cmake --build build-vulkan --config Release
 ```
 
-The `ImGuiVectorUIVulkanShaders` target compiles the GLSL files under `shaders/` to
-SPIR-V. `IVUI::Vulkan::EffectShaderLibrary::Load()` loads the generated set.
+The `ImGuiVectorUIVulkanShaders` target compiles GLSL files under the component's
+`shaders/` directory to SPIR-V. Installed packages expose the generated shader
+directory as `ImGuiVectorUI_SHADER_DIR`; `IVUI::Vulkan::EffectShaderLibrary::Load()`
+loads that generated set.
 
 ## CMake Targets
 
@@ -147,8 +201,8 @@ ui->effects().Submit(request);
 ## Dependencies
 
 - C++20 and CMake 3.21+
-- Dear ImGui 1.92.9 from `third_party/imgui`, or an existing `imgui`/`imgui::imgui`
-  CMake target
+- Dear ImGui 1.92.9 from the workspace's `third_party/imgui`, another source tree
+  selected with `IVUI_IMGUI_SOURCE_DIR`, or an existing `imgui`/`imgui::imgui` target
 - Windows SDK for Win32, Direct3D 11 and Direct3D 12 targets
 - Vulkan SDK only when `IVUI_BUILD_VULKAN_EFFECTS=ON`
 

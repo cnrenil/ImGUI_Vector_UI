@@ -1,0 +1,14 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+if(@IVUI_BUILD_VULKAN_EFFECTS@)
+    find_dependency(Vulkan)
+endif()
+include("${CMAKE_CURRENT_LIST_DIR}/ImGuiVectorUITargets.cmake")
+
+if(@IVUI_BUILD_VULKAN_EFFECTS@)
+    set_and_check(ImGuiVectorUI_SHADER_DIR
+        "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_DATADIR@/ImGuiVectorUI/shaders")
+endif()
+
+check_required_components(ImGuiVectorUI)

@@ -20,7 +20,7 @@ namespace IVUI::Vulkan
         std::size_t sizeBytes = 0;
     };
 
-    /** SPIR-V generated from the files under shaders/ at build time. */
+    /** SPIR-V generated from the component's shaders directory at build time. */
     struct EffectShaderSet
     {
         ShaderBinary fullscreenVertex{};
