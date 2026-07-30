@@ -606,25 +606,12 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
 
     IMGUI_CHECKVERSION();
     const std::string executableDirectory = ExecutableDirectory();
-    auto shaderLibrary = IVUI::Vulkan::EffectShaderLibrary::Load(
-        (executableDirectory + "shaders").c_str(), &error);
-    if (!shaderLibrary)
-    {
-        ::MessageBoxA(hwnd, error.c_str(), "ImGuiVectorUI Vulkan shaders",
-                      MB_OK | MB_ICONERROR);
-        CleanupVulkan();
-        ::DestroyWindow(hwnd);
-        ::UnregisterClassW(windowClass.lpszClassName, windowClass.hInstance);
-        return 1;
-    }
-
     auto effects = IVUI::Vulkan::EffectRenderer::Create({
         g_physicalDevice, g_device, g_windowData.SurfaceFormat.format,
-        g_windowData.RenderPass, 0, g_windowData.ImageCount, nullptr,
-        shaderLibrary->Get()});
+        g_windowData.RenderPass, 0, g_windowData.ImageCount, nullptr}, &error);
     if (!effects)
     {
-        ::MessageBoxA(hwnd, "Vulkan effects initialization failed.",
+        ::MessageBoxA(hwnd, error.c_str(),
                       "ImGuiVectorUI Vulkan", MB_OK | MB_ICONERROR);
         CleanupVulkan();
         ::DestroyWindow(hwnd);
@@ -719,7 +706,6 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
     }
 
     CleanupVulkan();
-    shaderLibrary.reset();
     ::DestroyWindow(hwnd);
     g_hwnd = nullptr;
     ::UnregisterClassW(windowClass.lpszClassName, windowClass.hInstance);

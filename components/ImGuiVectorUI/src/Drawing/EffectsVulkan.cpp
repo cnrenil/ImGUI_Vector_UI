@@ -1,92 +1,31 @@
 #include "ImGuiVectorUI/Backends/EffectsVulkan.h"
+#include "ImGuiVectorUI/Backends/ShaderLibrary.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
 #include <exception>
-#include <filesystem>
-#include <fstream>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace IVUI::Vulkan
 {
-    struct EffectShaderLibrary::Impl
-    {
-        std::array<std::vector<std::uint32_t>, 7> binaries;
-    };
-
-    std::unique_ptr<EffectShaderLibrary> EffectShaderLibrary::Load(
-        const char* directory, std::string* error) noexcept
-    {
-        try
-        {
-            if (!directory || !*directory)
-            {
-                if (error) *error = "A Vulkan shader directory is required.";
-                return nullptr;
-            }
-            auto impl = std::make_unique<Impl>();
-            constexpr const char* names[] = {
-                "effects.vert.spv", "effects_background.frag.spv",
-                "effects_blur.frag.spv", "effects_material.frag.spv",
-                "effects_shape.frag.spv", "effects_bloom.frag.spv",
-                "effects_composite.frag.spv"};
-            for (std::size_t index = 0; index < std::size(names); ++index)
-            {
-                const auto path = std::filesystem::path(directory) / names[index];
-                std::ifstream input(path, std::ios::binary | std::ios::ate);
-                if (!input)
-                {
-                    if (error) *error = "Unable to open Vulkan effect shader: " + path.string();
-                    return nullptr;
-                }
-                const std::streamsize bytes = input.tellg();
-                if (bytes <= 0 || bytes % static_cast<std::streamsize>(sizeof(std::uint32_t)) != 0)
-                {
-                    if (error) *error = "Invalid SPIR-V byte size: " + path.string();
-                    return nullptr;
-                }
-                input.seekg(0);
-                auto& output = impl->binaries[index];
-                output.resize(static_cast<std::size_t>(bytes) / sizeof(std::uint32_t));
-                if (!input.read(reinterpret_cast<char*>(output.data()), bytes))
-                {
-                    if (error) *error = "Unable to read Vulkan effect shader: " + path.string();
-                    return nullptr;
-                }
-            }
-            if (error) error->clear();
-            return std::unique_ptr<EffectShaderLibrary>(new EffectShaderLibrary(std::move(impl)));
-        }
-        catch (const std::exception& exception)
-        {
-            if (error) *error = exception.what();
-            return nullptr;
-        }
-    }
-
-    EffectShaderLibrary::EffectShaderLibrary(std::unique_ptr<Impl> impl) noexcept
-        : impl_(std::move(impl)) {}
-    EffectShaderLibrary::~EffectShaderLibrary() = default;
-    EffectShaderLibrary::EffectShaderLibrary(EffectShaderLibrary&&) noexcept = default;
-    EffectShaderLibrary& EffectShaderLibrary::operator=(EffectShaderLibrary&&) noexcept = default;
-    EffectShaderSet EffectShaderLibrary::Get() const noexcept
-    {
-        if (!impl_) return {};
-        const auto shader = [this](std::size_t index) {
-            const auto& binary = impl_->binaries[index];
-            return ShaderBinary{binary.data(), binary.size() * sizeof(std::uint32_t)};
-        };
-        return {shader(0), shader(1), shader(2), shader(3), shader(4), shader(5),
-                shader(6)};
-    }
-
     namespace
     {
         constexpr std::uint32_t kPushConstantSize = sizeof(float) * 32;
+
+        struct EffectShaders
+        {
+            ShaderBinary fullscreenVertex{};
+            ShaderBinary backgroundFragment{};
+            ShaderBinary blurFragment{};
+            ShaderBinary materialFragment{};
+            ShaderBinary shapeFragment{};
+            ShaderBinary bloomFragment{};
+            ShaderBinary compositeFragment{};
+        };
 
         bool ValidShader(const ShaderBinary& shader)
         {
@@ -145,6 +84,7 @@ namespace IVUI::Vulkan
         explicit Impl(const EffectRendererCreateInfo& info) : createInfo(info) {}
 
         EffectRendererCreateInfo createInfo{};
+        EffectShaders shaders{};
         EffectRendererFrameInfo frame{};
         VkSampler sampler = VK_NULL_HANDLE;
         VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
@@ -221,17 +161,27 @@ namespace IVUI::Vulkan
 
         bool Initialize()
         {
+            const auto findShader = [](const char* filename) {
+                return ShaderLibrary::Find(ShaderBackend::Vulkan, filename);
+            };
+            shaders.fullscreenVertex = findShader("effects.vert.spv");
+            shaders.backgroundFragment = findShader("effects_background.frag.spv");
+            shaders.blurFragment = findShader("effects_blur.frag.spv");
+            shaders.materialFragment = findShader("effects_material.frag.spv");
+            shaders.shapeFragment = findShader("effects_shape.frag.spv");
+            shaders.bloomFragment = findShader("effects_bloom.frag.spv");
+            shaders.compositeFragment = findShader("effects_composite.frag.spv");
             if (createInfo.physicalDevice == VK_NULL_HANDLE || createInfo.device == VK_NULL_HANDLE ||
                 createInfo.targetFormat == VK_FORMAT_UNDEFINED || createInfo.renderPass == VK_NULL_HANDLE ||
-                 createInfo.framesInFlight == 0 || !ValidShader(createInfo.shaders.fullscreenVertex) ||
-                 !ValidShader(createInfo.shaders.backgroundFragment) ||
-                 !ValidShader(createInfo.shaders.blurFragment) ||
-                 !ValidShader(createInfo.shaders.materialFragment) ||
-                  !ValidShader(createInfo.shaders.shapeFragment) ||
-                  !ValidShader(createInfo.shaders.bloomFragment) ||
-                  !ValidShader(createInfo.shaders.compositeFragment))
+                createInfo.framesInFlight == 0 || !ValidShader(shaders.fullscreenVertex) ||
+                !ValidShader(shaders.backgroundFragment) ||
+                !ValidShader(shaders.blurFragment) ||
+                !ValidShader(shaders.materialFragment) ||
+                !ValidShader(shaders.shapeFragment) ||
+                !ValidShader(shaders.bloomFragment) ||
+                !ValidShader(shaders.compositeFragment))
             {
-                error = "Vulkan effects require a device, render pass, format and seven SPIR-V shaders.";
+                error = "Vulkan effects require a device, render pass, format and compiled shaders.";
                 return false;
             }
 
@@ -357,6 +307,7 @@ namespace IVUI::Vulkan
 
             if (!CreatePipelines())
                 return false;
+            shaders = {};
             frames.resize(createInfo.framesInFlight);
             return true;
         }
@@ -433,13 +384,13 @@ namespace IVUI::Vulkan
 
         bool CreatePipelines()
         {
-            VkShaderModule vertex = CreateShaderModule(createInfo.shaders.fullscreenVertex);
-            VkShaderModule background = CreateShaderModule(createInfo.shaders.backgroundFragment);
-            VkShaderModule blur = CreateShaderModule(createInfo.shaders.blurFragment);
-            VkShaderModule material = CreateShaderModule(createInfo.shaders.materialFragment);
-            VkShaderModule shape = CreateShaderModule(createInfo.shaders.shapeFragment);
-            VkShaderModule bloom = CreateShaderModule(createInfo.shaders.bloomFragment);
-            VkShaderModule composite = CreateShaderModule(createInfo.shaders.compositeFragment);
+            VkShaderModule vertex = CreateShaderModule(shaders.fullscreenVertex);
+            VkShaderModule background = CreateShaderModule(shaders.backgroundFragment);
+            VkShaderModule blur = CreateShaderModule(shaders.blurFragment);
+            VkShaderModule material = CreateShaderModule(shaders.materialFragment);
+            VkShaderModule shape = CreateShaderModule(shaders.shapeFragment);
+            VkShaderModule bloom = CreateShaderModule(shaders.bloomFragment);
+            VkShaderModule composite = CreateShaderModule(shaders.compositeFragment);
             if (!vertex || !background || !blur || !material || !shape || !bloom || !composite)
             {
                 if (composite) vkDestroyShaderModule(createInfo.device, composite, createInfo.allocator);
@@ -969,17 +920,22 @@ namespace IVUI::Vulkan
     };
 
     std::unique_ptr<EffectRenderer> EffectRenderer::Create(
-        const EffectRendererCreateInfo& createInfo) noexcept
+        const EffectRendererCreateInfo& createInfo, std::string* error) noexcept
     {
         try
         {
             auto impl = std::make_unique<Impl>(createInfo);
             if (!impl->Initialize())
+            {
+                if (error) *error = impl->error;
                 return nullptr;
+            }
+            if (error) error->clear();
             return std::unique_ptr<EffectRenderer>(new EffectRenderer(std::move(impl)));
         }
         catch (...)
         {
+            if (error) *error = "Unexpected Vulkan effect renderer initialization failure.";
             return nullptr;
         }
     }

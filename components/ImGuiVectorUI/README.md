@@ -2,7 +2,12 @@
 
 This directory is the independently buildable ImGuiVectorUI C++20 component. It
 contains the public headers, implementation, optional renderer/effect backends,
-Vulkan shaders, tests, package configuration and license.
+DirectX and Vulkan shaders, tests, package configuration and license.
+
+DX11 and DX12 compile the same HLSL stage sources under `shaders/directx`, with one
+`.frag` file per effect. Vulkan follows the same layout under `shaders/vulkan`.
+All enabled backend binaries are embedded into the component library and managed by
+`IVUI::ShaderLibrary`. Runtime shader replacement is intentionally unsupported.
 
 ## Embed In Another CMake Project
 
@@ -49,4 +54,5 @@ ctest --test-dir out/component -C Release --output-on-failure
 
 Set `IVUI_INSTALL=ON` to generate an installable CMake package. Installed
 projects consume it with `find_package(ImGuiVectorUI CONFIG REQUIRED)` and link
-`ImGuiVectorUI::ImGuiVectorUI` plus any enabled backend targets.
+`ImGuiVectorUI::ImGuiVectorUI` plus any enabled backend targets. Shader binaries are
+already contained in the installed component library and require no runtime assets.

@@ -9,11 +9,6 @@
 int main()
 {
     std::string error;
-    if (!IVUI::DX12::ValidateEffectShaders(&error))
-    {
-        std::cerr << error << '\n';
-        return EXIT_FAILURE;
-    }
     ID3D12Device* device = nullptr;
     if (FAILED(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0,
                                  IID_PPV_ARGS(&device))))
@@ -21,13 +16,15 @@ int main()
         std::cerr << "D3D12CreateDevice failed.\n";
         return EXIT_FAILURE;
     }
-    auto renderer = IVUI::DX12::EffectRenderer::Create(
+    auto embeddedRenderer = IVUI::DX12::EffectRenderer::Create(
         {device, DXGI_FORMAT_R8G8B8A8_UNORM}, &error);
-    device->Release();
-    if (!renderer)
+    if (!embeddedRenderer)
     {
         std::cerr << error << '\n';
+        device->Release();
         return EXIT_FAILURE;
     }
+
+    device->Release();
     return EXIT_SUCCESS;
 }

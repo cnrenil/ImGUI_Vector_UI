@@ -26,6 +26,10 @@ endif()
 
 add_subdirectory(components/ImGuiVectorUI)
 
+if(IVUI_BUILD_DEMO OR IVUI_BUILD_DX11_DEMO OR IVUI_BUILD_VULKAN_DEMO)
+    add_subdirectory(apps/DemoMenu)
+endif()
+
 if(IVUI_BUILD_DEMO)
     add_subdirectory(apps/Dx12Host)
 endif()

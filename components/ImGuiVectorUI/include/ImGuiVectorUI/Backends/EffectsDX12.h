@@ -13,7 +13,6 @@
 
 namespace IVUI::DX12
 {
-    bool ValidateEffectShaders(std::string* error = nullptr) noexcept;
     using BackgroundShaderParams = IVUI::BackgroundShaderParams;
 
     struct EffectRendererCreateInfo

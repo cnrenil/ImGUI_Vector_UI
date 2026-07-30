@@ -8,6 +8,7 @@
 #include <d3d11.h>
 
 #include <memory>
+#include <string>
 
 namespace IVUI::DX11
 {
@@ -34,7 +35,8 @@ namespace IVUI::DX11
     {
     public:
         static std::unique_ptr<EffectRenderer> Create(
-            const EffectRendererCreateInfo& createInfo) noexcept;
+            const EffectRendererCreateInfo& createInfo,
+            std::string* error = nullptr) noexcept;
 
         ~EffectRenderer() override;
         EffectRenderer(EffectRenderer&&) noexcept;

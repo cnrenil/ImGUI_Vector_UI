@@ -127,10 +127,12 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
     ::SetFocus(hwnd);
 
     IMGUI_CHECKVERSION();
-    auto effects = IVUI::DX11::EffectRenderer::Create({g_device});
+    std::string effectError;
+    const std::string executableDirectory = ExecutableDirectory();
+    auto effects = IVUI::DX11::EffectRenderer::Create({g_device}, &effectError);
     if (!effects)
     {
-        ::MessageBoxA(hwnd, "DX11 effects initialization failed.", "ImGuiVectorUI DX11",
+        ::MessageBoxA(hwnd, effectError.c_str(), "ImGuiVectorUI DX11 Effects",
                       MB_OK | MB_ICONERROR);
         CleanupDevice();
         ::DestroyWindow(hwnd);
@@ -138,7 +140,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
         return 1;
     }
 
-    const std::string unifontPath = ExecutableDirectory() + "unifont.otf";
+    const std::string unifontPath = executableDirectory + "unifont.otf";
     const bool haveUnifont =
         ::GetFileAttributesA(unifontPath.c_str()) != INVALID_FILE_ATTRIBUTES;
     const auto unifontLoaded = std::make_shared<bool>(false);

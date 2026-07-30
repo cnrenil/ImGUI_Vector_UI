@@ -23,6 +23,63 @@ function(ivui_configure_target target)
     endif()
 endfunction()
 
+if(IVUI_BUILD_DX11_EFFECTS OR IVUI_BUILD_DX12_EFFECTS)
+    find_program(IVUI_FXC_EXECUTABLE fxc REQUIRED)
+endif()
+
+function(ivui_add_directx_shader_target target)
+    set(shader_specs
+        "effects_fullscreen.vs.cso|effects.vert|main|vs_5_0"
+        "effects_background.ps.cso|effects_background.frag|main|ps_5_0"
+        "effects_blur.ps.cso|effects_blur.frag|main|ps_5_0"
+        "effects_material.ps.cso|effects_material.frag|main|ps_5_0"
+        "effects_shape.ps.cso|effects_shape.frag|main|ps_5_0"
+        "effects_bloom.ps.cso|effects_bloom.frag|main|ps_5_0"
+        "effects_texture.ps.cso|effects_texture.frag|main|ps_5_0"
+        "effects_composite.ps.cso|effects_composite.frag|main|ps_5_0")
+    set(outputs)
+    set(source_directory "${CMAKE_CURRENT_SOURCE_DIR}/shaders/directx")
+    set(output_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders/directx")
+    foreach(spec IN LISTS shader_specs)
+        string(REPLACE "|" ";" fields "${spec}")
+        list(GET fields 0 filename)
+        list(GET fields 1 source_filename)
+        list(GET fields 2 entry_point)
+        list(GET fields 3 profile)
+        set(source "${source_directory}/${source_filename}")
+        set(output "${output_directory}/${filename}")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${output_directory}"
+            COMMAND "${IVUI_FXC_EXECUTABLE}" /nologo /Ges /O3
+                    /T "${profile}" /E "${entry_point}" /Fo "${output}" "${source}"
+            DEPENDS "${source}"
+            VERBATIM)
+        list(APPEND outputs "${output}")
+    endforeach()
+    add_custom_target(${target} DEPENDS ${outputs})
+    set_target_properties(${target} PROPERTIES IVUI_SHADER_OUTPUT_DIR "${output_directory}")
+    set(${target}_OUTPUTS ${outputs} PARENT_SCOPE)
+endfunction()
+
+function(ivui_embed_shader_directory function_name shader_directory shader_outputs output_name)
+    set(output "${CMAKE_CURRENT_BINARY_DIR}/generated/${output_name}")
+    add_custom_command(OUTPUT "${output}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        COMMAND ${CMAKE_COMMAND}
+            "-DIVUI_SHADER_DIRECTORY=${shader_directory}"
+            "-DIVUI_OUTPUT=${output}"
+            "-DIVUI_FUNCTION_NAME=${function_name}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShaders.cmake"
+        DEPENDS ${shader_outputs} "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShaders.cmake"
+        VERBATIM)
+    set_source_files_properties("${output}" PROPERTIES GENERATED TRUE)
+    target_sources(ImGuiVectorUI PRIVATE "${output}")
+endfunction()
+
+if(IVUI_BUILD_DX11_EFFECTS OR IVUI_BUILD_DX12_EFFECTS)
+    ivui_add_directx_shader_target(ImGuiVectorUIDirectXShaders)
+endif()
+
 set(IVUI_BUNDLED_IMGUI OFF)
 if(TARGET imgui::imgui AND NOT TARGET imgui)
     add_library(imgui ALIAS imgui::imgui)
@@ -61,6 +118,7 @@ set(IVUI_CORE_SOURCES
     src/Core/Id.cpp
     src/Core/Motion.cpp
     src/Drawing/DrawText.cpp
+    src/Drawing/ShaderLibrary.cpp
     src/Drawing/EffectsBridge.cpp
     src/Drawing/Icons.cpp
     src/Drawing/Primitives.cpp
@@ -98,6 +156,15 @@ target_include_directories(ImGuiVectorUI
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
+if(TARGET ImGuiVectorUIDirectXShaders)
+    target_compile_definitions(ImGuiVectorUI PRIVATE IVUI_HAS_DIRECTX_SHADERS)
+    get_target_property(IVUI_DIRECTX_SHADER_EMBED_DIR
+        ImGuiVectorUIDirectXShaders IVUI_SHADER_OUTPUT_DIR)
+    ivui_embed_shader_directory(FindDirectX
+        "${IVUI_DIRECTX_SHADER_EMBED_DIR}" "${ImGuiVectorUIDirectXShaders_OUTPUTS}"
+        DirectXShaders.cpp)
+endif()
+
 # Build-tree-only access for the repository demo. This target is deliberately
 # omitted from package exports so downstream projects consume the public API.
 add_library(ImGuiVectorUIDevelopment INTERFACE)
@@ -128,10 +195,11 @@ if(IVUI_BUILD_DX12_EFFECTS)
     set_target_properties(ImGuiVectorUIEffectsDX12 PROPERTIES EXPORT_NAME EffectsDX12)
     ivui_configure_target(ImGuiVectorUIEffectsDX12)
     target_link_libraries(ImGuiVectorUIEffectsDX12 PUBLIC ImGuiVectorUI
-        PRIVATE d3d12 dxgi d3dcompiler)
+        PRIVATE d3d12 dxgi)
     target_include_directories(ImGuiVectorUIEffectsDX12 PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+    add_dependencies(ImGuiVectorUIEffectsDX12 ImGuiVectorUIDirectXShaders)
 endif()
 
 if(IVUI_BUILD_WIN32_PLATFORM)
@@ -160,11 +228,11 @@ if(IVUI_BUILD_DX11_EFFECTS)
     add_library(ImGuiVectorUI::EffectsDX11 ALIAS ImGuiVectorUIEffectsDX11)
     set_target_properties(ImGuiVectorUIEffectsDX11 PROPERTIES EXPORT_NAME EffectsDX11)
     ivui_configure_target(ImGuiVectorUIEffectsDX11)
-    target_link_libraries(ImGuiVectorUIEffectsDX11 PUBLIC ImGuiVectorUI
-        PRIVATE d3d11 d3dcompiler)
+    target_link_libraries(ImGuiVectorUIEffectsDX11 PUBLIC ImGuiVectorUI PRIVATE d3d11)
     target_include_directories(ImGuiVectorUIEffectsDX11 PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+    add_dependencies(ImGuiVectorUIEffectsDX11 ImGuiVectorUIDirectXShaders)
 
     add_library(ImGuiVectorUIRendererDX11 STATIC
         src/Backends/RendererDX11.cpp
@@ -209,19 +277,23 @@ if(IVUI_BUILD_VULKAN_EFFECTS)
     endif()
     set(IVUI_VULKAN_SHADER_OUTPUTS)
     foreach(shader effects.vert effects_background.frag effects_blur.frag effects_material.frag effects_shape.frag effects_bloom.frag effects_composite.frag)
-        set(output "${CMAKE_CURRENT_BINARY_DIR}/shaders/${shader}.spv")
+        set(output "${CMAKE_CURRENT_BINARY_DIR}/shaders/vulkan/${shader}.spv")
         add_custom_command(OUTPUT "${output}"
-            COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders/vulkan"
             COMMAND "${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE}" -V
-                    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/${shader}" -o "${output}"
-            DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/shaders/${shader}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/${shader}" -o "${output}"
+            DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/${shader}"
             VERBATIM)
         list(APPEND IVUI_VULKAN_SHADER_OUTPUTS "${output}")
     endforeach()
     add_custom_target(ImGuiVectorUIVulkanShaders DEPENDS ${IVUI_VULKAN_SHADER_OUTPUTS})
     set_target_properties(ImGuiVectorUIVulkanShaders PROPERTIES
-        IVUI_SHADER_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
+        IVUI_SHADER_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders/vulkan")
     add_dependencies(ImGuiVectorUIEffectsVulkan ImGuiVectorUIVulkanShaders)
+    target_compile_definitions(ImGuiVectorUI PRIVATE IVUI_HAS_VULKAN_SHADERS)
+    ivui_embed_shader_directory(FindVulkan
+        "${CMAKE_CURRENT_BINARY_DIR}/shaders/vulkan" "${IVUI_VULKAN_SHADER_OUTPUTS}"
+        VulkanShaders.cpp)
 
     add_library(ImGuiVectorUIRendererVulkan STATIC
         src/Backends/RendererVulkan.cpp
@@ -258,6 +330,23 @@ if(IVUI_BUILD_TESTS)
         target_link_libraries(ImGuiVectorUIEffectsDX12Tests PRIVATE ImGuiVectorUIEffectsDX12)
         add_test(NAME ImGuiVectorUIEffectsDX12Tests COMMAND ImGuiVectorUIEffectsDX12Tests)
     endif()
+
+    if(TARGET ImGuiVectorUIEffectsDX11)
+        add_executable(ImGuiVectorUIEffectsDX11Tests tests/EffectsDX11Tests.cpp)
+        ivui_configure_target(ImGuiVectorUIEffectsDX11Tests)
+        target_link_libraries(ImGuiVectorUIEffectsDX11Tests PRIVATE ImGuiVectorUIEffectsDX11)
+        add_test(NAME ImGuiVectorUIEffectsDX11Tests COMMAND ImGuiVectorUIEffectsDX11Tests)
+    endif()
+
+    if(TARGET ImGuiVectorUIEffectsVulkan)
+        add_executable(ImGuiVectorUIEffectsVulkanShaderTests
+            tests/EffectsVulkanShaderTests.cpp)
+        ivui_configure_target(ImGuiVectorUIEffectsVulkanShaderTests)
+        target_link_libraries(ImGuiVectorUIEffectsVulkanShaderTests PRIVATE ImGuiVectorUI)
+        add_dependencies(ImGuiVectorUIEffectsVulkanShaderTests ImGuiVectorUIVulkanShaders)
+        add_test(NAME ImGuiVectorUIEffectsVulkanShaderTests
+            COMMAND ImGuiVectorUIEffectsVulkanShaderTests)
+    endif()
 endif()
 
 if(IVUI_INSTALL)
@@ -281,6 +370,7 @@ if(IVUI_INSTALL)
     set(IVUI_PUBLIC_HEADERS
         include/ImGuiVectorUI/ImGuiVectorUI.h
         include/ImGuiVectorUI/UI.h
+        include/ImGuiVectorUI/Backends/ShaderLibrary.h
         include/ImGuiVectorUI/Core/Types.h
         include/ImGuiVectorUI/Core/Easing.h
         include/ImGuiVectorUI/Drawing/Effects.h
@@ -315,8 +405,6 @@ if(IVUI_INSTALL)
         install(FILES include/ImGuiVectorUI/Backends/EffectsVulkan.h
                       include/ImGuiVectorUI/Backends/RendererVulkan.h
             DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/ImGuiVectorUI/Backends)
-        install(FILES ${IVUI_VULKAN_SHADER_OUTPUTS}
-            DESTINATION ${CMAKE_INSTALL_DATADIR}/ImGuiVectorUI/shaders)
     endif()
     if(IVUI_BUNDLED_IMGUI)
         install(FILES ${IVUI_IMGUI_SOURCE_DIR}/imgui.h

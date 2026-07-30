@@ -1,6 +1,6 @@
 #include "ImGuiVectorUI/Backends/EffectsDX12.h"
+#include "ImGuiVectorUI/Backends/ShaderLibrary.h"
 
-#include <d3dcompiler.h>
 #include <wrl/client.h>
 
 #include <array>
@@ -19,234 +19,10 @@ namespace IVUI::DX12
     {
         constexpr UINT kConstantCount = 32;
 
-        const char* kShaderSource = R"hlsl(
-Texture2D SourceTexture : register(t0);
-SamplerState LinearClamp : register(s0);
-cbuffer EffectConstants : register(b0) { float4 uData[8]; };
-
-struct VertexOutput { float4 position : SV_Position; float2 uv : TEXCOORD0; };
-
-VertexOutput FullscreenVS(uint vertexId : SV_VertexID)
-{
-    VertexOutput output;
-    float2 position = float2(vertexId == 2 ? 3.0 : -1.0, vertexId == 1 ? 3.0 : -1.0);
-    output.position = float4(position, 0.0, 1.0);
-    output.uv = float2((position.x + 1.0) * 0.5, 1.0 - (position.y + 1.0) * 0.5);
-    return output;
-}
-
-float RoundedRectSdf(float2 pixelPosition, float2 rectMin, float2 rectMax, float radius)
-{
-    float2 center = (rectMin + rectMax) * 0.5;
-    float2 halfSize = max((rectMax - rectMin) * 0.5, 0.0);
-    radius = min(max(radius, 0.0), min(halfSize.x, halfSize.y));
-    float2 q = abs(pixelPosition - center) - halfSize + radius;
-    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
-}
-
-float4 BlurPS(VertexOutput input) : SV_Target
-{
-    float2 texel = uData[0].xy;
-    float2 direction = uData[0].zw;
-    float sigma = max(uData[1].x, 0.5);
-    float4 sum = 0.0;
-    float weightSum = 0.0;
-    [unroll] for (int i = -16; i <= 16; ++i)
-    {
-        float distance = (float)i;
-        float weight = exp(-0.5 * distance * distance / (sigma * sigma));
-        sum += SourceTexture.Sample(LinearClamp, input.uv + direction * texel * distance) * weight;
-        weightSum += weight;
-    }
-    return sum / max(weightSum, 0.0001);
-}
-
-float Hash21(float2 value)
-{
-    value = frac(value * float2(123.34, 456.21));
-    value += dot(value, value + 45.32);
-    return frac(value.x * value.y);
-}
-
-float SmoothNoise21(float2 value)
-{
-    float2 cell = floor(value);
-    float2 local = frac(value);
-    float2 curve = local * local * (3.0 - 2.0 * local);
-    float a = Hash21(cell);
-    float b = Hash21(cell + float2(1.0, 0.0));
-    float c = Hash21(cell + float2(0.0, 1.0));
-    float d = Hash21(cell + float2(1.0, 1.0));
-    return lerp(lerp(a, b, curve.x), lerp(c, d, curve.x), curve.y);
-}
-
-float LineMask(float2 coordinate)
-{
-    float2 width = max(fwidth(coordinate), 0.001);
-    float2 distanceToLine = abs(frac(coordinate - 0.5) - 0.5) / width;
-    return 1.0 - saturate(min(distanceToLine.x, distanceToLine.y));
-}
-
-float4 BackgroundPS(VertexOutput input) : SV_Target
-{
-    float3 topColor = uData[0].rgb;
-    float3 bottomColor = uData[1].rgb;
-    float3 accent = uData[2].rgb;
-    float3 secondary = uData[3].rgb;
-    float time = uData[4].x * uData[5].z;
-    float gridSize = max(uData[4].y, 12.0);
-    float gridStrength = saturate(uData[4].z);
-    float vignetteStrength = saturate(uData[4].w);
-    float2 resolution = max(uData[5].xy, 1.0);
-    float intensity = max(uData[5].w, 0.0);
-
-    float2 uv = input.uv;
-    float2 centered = uv * 2.0 - 1.0;
-    centered.x *= resolution.x / resolution.y;
-    float3 color = lerp(topColor, bottomColor, smoothstep(0.0, 1.0, uv.y));
-
-    float fineGrid = LineMask(input.position.xy / gridSize);
-    float majorGrid = LineMask(input.position.xy / (gridSize * 5.0));
-    color += secondary * (fineGrid * gridStrength * 0.28 + majorGrid * gridStrength * 0.68);
-
-    float waveA = centered.y + 0.30 + sin(centered.x * 2.5 + time * 0.75) * 0.11;
-    float waveB = centered.y - 0.20 + sin(centered.x * 4.1 - time * 0.58) * 0.075;
-    color += accent * exp(-waveA * waveA * 105.0) * 0.58 * intensity;
-    color += secondary * exp(-waveB * waveB * 155.0) * 0.48 * intensity;
-
-    float2 beaconPosition = float2(sin(time * 0.42) * 0.72, cos(time * 0.31) * 0.34);
-    float beacon = exp(-dot(centered - beaconPosition, centered - beaconPosition) * 11.0);
-    float diagonal = exp(-pow(centered.y + centered.x * 0.34 - sin(time * 0.26) * 0.25, 2.0) * 75.0);
-    color += accent * beacon * 0.52 * intensity;
-    color += lerp(accent, secondary, uv.x) * diagonal * 0.20 * intensity;
-    float vignette = 1.0 - smoothstep(0.30, 1.48, length(centered));
-    color *= lerp(1.0, vignette, vignetteStrength);
-    color += (Hash21(input.position.xy + floor(time * 12.0)) - 0.5) / 320.0;
-    return float4(max(color, 0.0), 1.0);
-}
-
-float4 GlassPS(VertexOutput input) : SV_Target
-{
-    float2 rectMin = uData[0].xy;
-    float2 rectMax = uData[0].zw;
-    float radius = uData[1].x;
-    float opacity = saturate(uData[1].y);
-    float3 tint = uData[1].zwx;
-    tint = float3(uData[1].z, uData[1].w, uData[2].x);
-    float tintStrength = saturate(uData[2].y);
-    float3 accent = float3(uData[2].z, uData[2].w, uData[3].x);
-    float refraction = uData[3].y;
-    float edgeWidth = max(uData[3].z, 0.5);
-    float edgeHighlight = saturate(uData[3].w);
-    float thickness = saturate(uData[4].x);
-    float shapePower = max(uData[4].y, 2.0);
-    float lensStrength = max(uData[4].z, 0.0);
-    float lensBase = max(uData[4].w * 2.718281828, 1.0001);
-    float lensFalloff = max(uData[5].x, 0.1);
-    float lensBias = max(uData[5].y, 0.0);
-    float lensPower = max(uData[5].z, 0.1);
-    float noiseStrength = uData[5].w;
-    float glowStrength = saturate(uData[6].x);
-    float glowSpread = max(uData[6].y, 0.5);
-    float shadowStrength = saturate(uData[6].z);
-    float shadowSpread = max(uData[6].w, 0.5);
-    float2 texel = uData[7].xy;
-    float time = uData[7].z;
-
-    float sdf = RoundedRectSdf(input.position.xy, rectMin, rectMax, radius);
-    float mask = 1.0 - smoothstep(-0.5, 1.0, sdf);
-    float edge = mask * (1.0 - smoothstep(0.0, edgeWidth, abs(sdf)));
-    float epsilon = 1.0;
-    float2 normal = float2(
-        RoundedRectSdf(input.position.xy + float2(epsilon, 0.0), rectMin, rectMax, radius) -
-            RoundedRectSdf(input.position.xy - float2(epsilon, 0.0), rectMin, rectMax, radius),
-        RoundedRectSdf(input.position.xy + float2(0.0, epsilon), rectMin, rectMax, radius) -
-            RoundedRectSdf(input.position.xy - float2(0.0, epsilon), rectMin, rectMax, radius));
-    normal = normalize(normal + 0.0001);
-
-    float2 center = (rectMin + rectMax) * 0.5;
-    float2 halfSize = max((rectMax - rectMin) * 0.5, 1.0);
-    float lensRadius = max(min(halfSize.x, halfSize.y), 1.0);
-    float edgeDistance = saturate(max(-sdf, 0.0) / lensRadius);
-    float interiorDistance = pow(edgeDistance, 2.0 / shapePower);
-    float lensCompression = saturate(
-        lensStrength * pow(lensBase, -lensFalloff * interiorDistance - lensBias));
-    lensCompression = min(lensCompression, 0.98);
-    float lensScale = pow(max(1.0 - lensCompression, 0.02), lensPower);
-    float2 lensOffset = ((center + (input.position.xy - center) * lensScale) -
-                         input.position.xy) * texel;
-
-    float2 noisePosition = input.position.xy * 0.045 + float2(time * 0.35, -time * 0.23);
-    float2 surfaceNoise = float2(SmoothNoise21(noisePosition),
-                                 SmoothNoise21(noisePosition + 19.19)) * 2.0 - 1.0;
-    float rimRefraction = refraction * edge * (0.35 + thickness * 0.65);
-    float2 sampleUv = input.uv + lensOffset + texel *
-        (normal * rimRefraction + surfaceNoise * noiseStrength * (0.25 + lensCompression * 0.75));
-    sampleUv = clamp(sampleUv, texel * 0.5, 1.0 - texel * 0.5);
-    float3 backdrop = SourceTexture.Sample(LinearClamp, sampleUv).rgb;
-    float3 material = lerp(backdrop, tint, tintStrength * (0.7 + thickness * 0.3));
-    float lightFacing = saturate(dot(normal, normalize(float2(-0.45, -0.90))));
-    float3 rimColor = lerp(accent, 1.0, 0.55);
-    material += rimColor * edge * (0.22 + lightFacing * 0.78) * edgeHighlight;
-
-    float outside = max(sdf, 0.0);
-    float shadow = exp(-outside / shadowSpread) * shadowStrength * (1.0 - mask);
-    float glow = exp(-outside / glowSpread) * glowStrength * (1.0 - mask);
-    float materialAlpha = mask * opacity;
-    float alpha = saturate(materialAlpha + shadow + glow);
-    clip(alpha - 0.001);
-    float3 color = material * materialAlpha + accent * glow;
-    return float4(color, alpha);
-}
-
-float4 ShapePS(VertexOutput input) : SV_Target
-{
-    float2 rectMin = uData[0].xy;
-    float2 rectMax = uData[0].zw;
-    float radius = uData[1].x;
-    float strength = saturate(uData[1].y);
-    float sigma = max(uData[1].z, 0.5);
-    float3 color = uData[2].rgb;
-    float2 offset = uData[3].xy;
-    float sdf = RoundedRectSdf(input.position.xy, rectMin + offset, rectMax + offset, radius);
-    float outside = max(sdf, 0.0);
-    float outsideMask = smoothstep(-0.5, 0.5, sdf);
-    float alpha = exp(-outside * outside / (2.0 * sigma * sigma)) *
-                  outsideMask * strength * uData[2].a;
-    clip(alpha - 0.001);
-    return float4(color * alpha, alpha);
-}
-
-float4 BloomFilterPS(VertexOutput input) : SV_Target
-{
-    float4 source = SourceTexture.Sample(LinearClamp, input.uv);
-    float brightness = max(source.r, max(source.g, source.b));
-    float minimum = min(source.r, min(source.g, source.b));
-    float brightnessWeight = smoothstep(uData[1].z - 0.1, uData[1].z + 0.05, brightness);
-    float saturationWeight = smoothstep(uData[1].w - 0.05, uData[1].w + 0.05, brightness - minimum);
-    float2 pixelPosition = input.position.xy;
-    float boundsMask = all(pixelPosition >= uData[2].xy) && all(pixelPosition <= uData[2].zw) ? 1.0 : 0.0;
-    return source * brightnessWeight * saturationWeight * boundsMask;
-}
-
-float4 TexturePS(VertexOutput input) : SV_Target
-{
-    float2 pixelPosition = input.position.xy;
-    float sdf = RoundedRectSdf(pixelPosition, uData[0].xy, uData[0].zw, uData[1].x);
-    float mask = 1.0 - smoothstep(-0.5, 1.0, sdf);
-    clip(mask - 0.001);
-    float opacity = saturate(uData[1].y) * mask;
-    float4 source = SourceTexture.Sample(LinearClamp, input.uv);
-    return float4(source.rgb * opacity, opacity);
-}
-
-float4 BloomCompositePS(VertexOutput input) : SV_Target
-{
-    float2 pixelPosition = input.position.xy;
-    float boundsMask = all(pixelPosition >= uData[2].xy) && all(pixelPosition <= uData[2].zw) ? 1.0 : 0.0;
-    return float4(SourceTexture.Sample(LinearClamp, input.uv).rgb * uData[1].y * boundsMask, 0.0);
-}
-)hlsl";
+        bool ValidShader(const ShaderBinary& shader)
+        {
+            return shader.code != nullptr && shader.sizeBytes != 0;
+        }
 
         void Transition(ID3D12GraphicsCommandList* commandList, ID3D12Resource* resource,
                         D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after)
@@ -284,36 +60,6 @@ float4 BloomCompositePS(VertexOutput input) : SV_Target
         }
     }
 
-    bool ValidateEffectShaders(std::string* error) noexcept
-    {
-        constexpr const char* shaders[][2] = {
-            {"FullscreenVS", "vs_5_0"}, {"BlurPS", "ps_5_0"},
-            {"BackgroundPS", "ps_5_0"}, {"GlassPS", "ps_5_0"},
-            {"ShapePS", "ps_5_0"}, {"BloomFilterPS", "ps_5_0"},
-            {"TexturePS", "ps_5_0"}, {"BloomCompositePS", "ps_5_0"}};
-        for (const auto& shader : shaders)
-        {
-            ComPtr<ID3DBlob> code;
-            ComPtr<ID3DBlob> errors;
-            const HRESULT result = D3DCompile(
-                kShaderSource, std::char_traits<char>::length(kShaderSource), "IVUI Effects",
-                nullptr, nullptr, shader[0], shader[1], D3DCOMPILE_ENABLE_STRICTNESS, 0,
-                &code, &errors);
-            if (FAILED(result))
-            {
-                if (error)
-                {
-                    *error = std::string(shader[0]) + ": " +
-                        (errors ? static_cast<const char*>(errors->GetBufferPointer()) :
-                                  "D3DCompile failed.");
-                }
-                return false;
-            }
-        }
-        if (error) error->clear();
-        return true;
-    }
-
     struct EffectRenderer::Impl
     {
         explicit Impl(const EffectRendererCreateInfo& info) : createInfo(info) {}
@@ -343,22 +89,9 @@ float4 BloomCompositePS(VertexOutput input) : SV_Target
         D3D12_GPU_DESCRIPTOR_HANDLE cachedBlur{};
         std::string error;
 
-        ComPtr<ID3DBlob> Compile(const char* entry, const char* target)
+        ShaderBinary FindShader(const char* filename) const noexcept
         {
-            ComPtr<ID3DBlob> code;
-            ComPtr<ID3DBlob> errors;
-            const HRESULT result = D3DCompile(kShaderSource, std::char_traits<char>::length(kShaderSource),
-                                              "IVUI Effects", nullptr, nullptr, entry, target,
-                                              D3DCOMPILE_ENABLE_STRICTNESS |
-                                                  D3DCOMPILE_OPTIMIZATION_LEVEL3,
-                                              0, &code, &errors);
-            if (FAILED(result))
-            {
-                error = errors ? static_cast<const char*>(errors->GetBufferPointer()) :
-                                 "D3DCompile failed.";
-                return {};
-            }
-            return code;
+            return ShaderLibrary::Find(ShaderBackend::DirectX, filename);
         }
 
         bool Initialize()
@@ -420,13 +153,16 @@ float4 BloomCompositePS(VertexOutput input) : SV_Target
                 return false;
             }
 
-            ComPtr<ID3DBlob> vertex = Compile("FullscreenVS", "vs_5_0");
-            if (!vertex)
+            const ShaderBinary vertex = FindShader("effects_fullscreen.vs.cso");
+            if (!ValidShader(vertex))
+            {
+                error = "Missing DX12 effect shader: effects_fullscreen.vs.cso";
                 return false;
+            }
 
             D3D12_GRAPHICS_PIPELINE_STATE_DESC pipelineDesc{};
             pipelineDesc.pRootSignature = rootSignature.Get();
-            pipelineDesc.VS = {vertex->GetBufferPointer(), vertex->GetBufferSize()};
+            pipelineDesc.VS = {vertex.code, vertex.sizeBytes};
             pipelineDesc.SampleMask = UINT_MAX;
             pipelineDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
             pipelineDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
@@ -438,13 +174,16 @@ float4 BloomCompositePS(VertexOutput input) : SV_Target
             pipelineDesc.BlendState.RenderTarget[0].RenderTargetWriteMask =
                 D3D12_COLOR_WRITE_ENABLE_ALL;
 
-            auto createPipeline = [&](const char* entry, bool alphaBlend, bool additive,
-                                      ComPtr<ID3D12PipelineState>& output)
+            auto createPipeline = [&](const char* filename, bool alphaBlend, bool additive,
+                                       ComPtr<ID3D12PipelineState>& output)
             {
-                ComPtr<ID3DBlob> pixel = Compile(entry, "ps_5_0");
-                if (!pixel)
+                const ShaderBinary pixel = FindShader(filename);
+                if (!ValidShader(pixel))
+                {
+                    error = std::string("Missing DX12 effect shader: ") + filename;
                     return false;
-                pipelineDesc.PS = {pixel->GetBufferPointer(), pixel->GetBufferSize()};
+                }
+                pipelineDesc.PS = {pixel.code, pixel.sizeBytes};
                 auto& blend = pipelineDesc.BlendState.RenderTarget[0];
                 blend.BlendEnable = alphaBlend || additive;
                 blend.SrcBlend = D3D12_BLEND_ONE;
@@ -456,19 +195,19 @@ float4 BloomCompositePS(VertexOutput input) : SV_Target
                 if (FAILED(createInfo.device->CreateGraphicsPipelineState(&pipelineDesc,
                                                                            IID_PPV_ARGS(&output))))
                 {
-                    error = std::string("CreateGraphicsPipelineState failed for ") + entry + ".";
+                    error = std::string("CreateGraphicsPipelineState failed for ") + filename + ".";
                     return false;
                 }
                 return true;
             };
 
-            if (!createPipeline("BlurPS", false, false, blurPipeline) ||
-                !createPipeline("BackgroundPS", false, false, backgroundPipeline) ||
-                !createPipeline("GlassPS", true, false, glassPipeline) ||
-                !createPipeline("ShapePS", true, false, shapePipeline) ||
-                !createPipeline("BloomFilterPS", false, false, bloomFilterPipeline) ||
-                !createPipeline("TexturePS", true, false, texturePipeline) ||
-                !createPipeline("BloomCompositePS", false, true, bloomCompositePipeline))
+            if (!createPipeline("effects_blur.ps.cso", false, false, blurPipeline) ||
+                !createPipeline("effects_background.ps.cso", false, false, backgroundPipeline) ||
+                !createPipeline("effects_material.ps.cso", true, false, glassPipeline) ||
+                !createPipeline("effects_shape.ps.cso", true, false, shapePipeline) ||
+                !createPipeline("effects_bloom.ps.cso", false, false, bloomFilterPipeline) ||
+                !createPipeline("effects_texture.ps.cso", true, false, texturePipeline) ||
+                !createPipeline("effects_composite.ps.cso", false, true, bloomCompositePipeline))
                 return false;
 
             D3D12_DESCRIPTOR_HEAP_DESC srvDesc{};
@@ -778,12 +517,6 @@ float4 BloomCompositePS(VertexOutput input) : SV_Target
     {
         try
         {
-            std::string shaderError;
-            if (!ValidateEffectShaders(&shaderError))
-            {
-                if (error) *error = shaderError;
-                return nullptr;
-            }
             auto impl = std::make_unique<Impl>(createInfo);
             if (!impl->Initialize())
             {

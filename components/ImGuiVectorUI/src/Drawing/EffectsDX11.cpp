@@ -1,6 +1,6 @@
 #include "ImGuiVectorUI/Backends/EffectsDX11.h"
+#include "ImGuiVectorUI/Backends/ShaderLibrary.h"
 
-#include <d3dcompiler.h>
 #include <wrl/client.h>
 
 #include <array>
@@ -15,109 +15,10 @@ namespace IVUI::DX11
 
     namespace
     {
-        const char* kShaderSource = R"hlsl(
-Texture2D SourceTexture : register(t0);
-SamplerState LinearClamp : register(s0);
-cbuffer Constants : register(b0) { float4 uData[16]; };
-struct VSOut { float4 position : SV_Position; float2 uv : TEXCOORD0; };
-VSOut FullscreenVS(uint id : SV_VertexID) {
-    VSOut o; float2 p = float2(id == 2 ? 3.0 : -1.0, id == 1 ? 3.0 : -1.0);
-    o.position = float4(p, 0.0, 1.0); o.uv = float2((p.x + 1.0) * 0.5, 1.0 - (p.y + 1.0) * 0.5); return o;
-}
-float Sdf(float2 p, float2 mn, float2 mx, float r) {
-    float2 c = (mn + mx) * 0.5, h = max((mx - mn) * 0.5, 0.0); r = min(max(r, 0.0), min(h.x, h.y));
-    float2 q = abs(p - c) - h + r; return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
-}
-float Hash21(float2 p) {
-    p=frac(p*float2(123.34,345.45)); p+=dot(p,p+34.345); return frac(p.x*p.y);
-}
-float SmoothNoise21(float2 p) {
-    float2 cell=floor(p), local=frac(p), curve=local*local*(3.0-2.0*local);
-    float a=Hash21(cell), b=Hash21(cell+float2(1,0)), c=Hash21(cell+float2(0,1)), d=Hash21(cell+float2(1,1));
-    return lerp(lerp(a,b,curve.x),lerp(c,d,curve.x),curve.y);
-}
-float4 BlurPS(VSOut i) : SV_Target {
-    float4 sum = 0.0; float weights = 0.0; float sigma = max(uData[1].x, 0.5);
-    [unroll] for (int x = -16; x <= 16; ++x) { float d = (float)x; float w = exp(-0.5 * d * d / (sigma * sigma));
-        sum += SourceTexture.Sample(LinearClamp, i.uv + uData[0].zw * uData[0].xy * d) * w; weights += w; }
-    return sum / max(weights, 0.0001);
-}
-float LineMask(float2 coordinate) {
-    float2 width = max(fwidth(coordinate), 0.001);
-    float2 distanceToLine = abs(frac(coordinate - 0.5) - 0.5) / width;
-    return 1.0 - saturate(min(distanceToLine.x, distanceToLine.y));
-}
-float4 BackgroundPS(VSOut i) : SV_Target {
-    float3 topColor=uData[0].rgb, bottomColor=uData[1].rgb;
-    float3 accent=uData[2].rgb, secondary=uData[3].rgb;
-    float time=uData[4].x*uData[5].z, gridSize=max(uData[4].y,12.0);
-    float gridStrength=saturate(uData[4].z), vignetteStrength=saturate(uData[4].w);
-    float2 resolution=max(uData[5].xy,1.0); float intensity=max(uData[5].w,0.0);
-    float2 uv=i.uv, centered=uv*2.0-1.0; centered.x*=resolution.x/resolution.y;
-    float3 color=lerp(topColor,bottomColor,smoothstep(0.0,1.0,uv.y));
-    float fineGrid=LineMask(i.position.xy/gridSize), majorGrid=LineMask(i.position.xy/(gridSize*5.0));
-    color+=secondary*(fineGrid*gridStrength*0.28+majorGrid*gridStrength*0.68);
-    float waveA=centered.y+0.30+sin(centered.x*2.5+time*0.75)*0.11;
-    float waveB=centered.y-0.20+sin(centered.x*4.1-time*0.58)*0.075;
-    color+=accent*exp(-waveA*waveA*105.0)*0.58*intensity;
-    color+=secondary*exp(-waveB*waveB*155.0)*0.48*intensity;
-    float2 beaconPosition=float2(sin(time*0.42)*0.72,cos(time*0.31)*0.34);
-    float beacon=exp(-dot(centered-beaconPosition,centered-beaconPosition)*11.0);
-    float diagonal=exp(-pow(centered.y+centered.x*0.34-sin(time*0.26)*0.25,2.0)*75.0);
-    color+=accent*beacon*0.52*intensity+lerp(accent,secondary,uv.x)*diagonal*0.20*intensity;
-    float vignette=1.0-smoothstep(0.30,1.48,length(centered));
-    color*=lerp(1.0,vignette,vignetteStrength); return float4(max(color,0.0),1.0);
-}
-float4 GlassPS(VSOut i) : SV_Target {
-    float2 mn = uData[0].xy, mx = uData[0].zw; float radius = uData[1].x, opacity = saturate(uData[1].y);
-    float3 tint = float3(uData[1].z, uData[1].w, uData[2].x); float tintAmount = saturate(uData[2].y);
-    float3 accent = float3(uData[2].z, uData[2].w, uData[3].x); float sdf = Sdf(i.position.xy, mn, mx, radius);
-    float mask = 1.0 - smoothstep(-0.5, 1.0, sdf); float edge = mask * (1.0 - smoothstep(0.0, max(uData[3].z, 0.5), abs(sdf)));
-    float2 n = float2(Sdf(i.position.xy + float2(1,0), mn,mx,radius)-Sdf(i.position.xy-float2(1,0),mn,mx,radius),
-                      Sdf(i.position.xy + float2(0,1), mn,mx,radius)-Sdf(i.position.xy-float2(0,1),mn,mx,radius)); n = normalize(n + 0.0001);
-    float thickness=saturate(uData[4].x), shapePower=max(uData[4].y,2.0), lensStrength=max(uData[4].z,0.0);
-    float lensBase=max(uData[4].w*2.718281828,1.0001), lensFalloff=max(uData[5].x,0.1);
-    float lensBias=max(uData[5].y,0.0), lensPower=max(uData[5].z,0.1), time=uData[7].z;
-    float2 center=(mn+mx)*0.5, halfSize=max((mx-mn)*0.5,1.0); float lensRadius=max(min(halfSize.x,halfSize.y),1.0);
-    float edgeDistance=saturate(max(-sdf,0.0)/lensRadius), interiorDistance=pow(edgeDistance,2.0/shapePower);
-    float lensCompression=min(saturate(lensStrength*pow(lensBase,-lensFalloff*interiorDistance-lensBias)),0.98);
-    float lensScale=pow(max(1.0-lensCompression,0.02),lensPower);
-    float2 lensOffset=((center+(i.position.xy-center)*lensScale)-i.position.xy)*uData[7].xy;
-    float2 noisePosition=i.position.xy*0.045+float2(time*0.35,-time*0.23);
-    float2 surfaceNoise=float2(SmoothNoise21(noisePosition),SmoothNoise21(noisePosition+19.19))*2.0-1.0;
-    float rimRefraction=max(uData[3].y,0.0)*edge*(0.35+thickness*0.65);
-    float2 sampleUv=i.uv+lensOffset+uData[7].xy*(n*rimRefraction+surfaceNoise*max(uData[5].w,0.0)*(0.25+lensCompression*0.75));
-    sampleUv=clamp(sampleUv,uData[7].xy*0.5,1.0-uData[7].xy*0.5);
-    float3 material = lerp(SourceTexture.Sample(LinearClamp, sampleUv).rgb, tint, tintAmount*(0.7+thickness*0.3));
-    float lightFacing=saturate(dot(n,normalize(float2(-0.45,-0.90))));
-    material += lerp(accent,1.0,0.55)*edge*(0.22+lightFacing*0.78)*saturate(uData[3].w); float outside = max(sdf, 0.0);
-    float glow = exp(-outside/max(uData[6].y,0.5))*saturate(uData[6].x)*(1.0-mask);
-    float shadow = exp(-outside/max(uData[6].w,0.5))*saturate(uData[6].z)*(1.0-mask);
-    float materialAlpha = mask * opacity, alpha = saturate(materialAlpha + glow + shadow); clip(alpha - 0.001);
-    return float4(material * materialAlpha + accent * glow, alpha);
-}
-float4 ShapePS(VSOut i) : SV_Target {
-    float sdf = Sdf(i.position.xy, uData[0].xy + uData[3].xy, uData[0].zw + uData[3].xy, uData[1].x);
-    float sigma=max(uData[1].z,0.5), outside=max(sdf,0.0), outsideMask=smoothstep(-0.5,0.5,sdf);
-    float alpha=exp(-outside*outside/(2.0*sigma*sigma))*outsideMask*saturate(uData[1].y)*uData[2].a;
-    clip(alpha - 0.001); return float4(uData[2].rgb * alpha, alpha);
-}
-float4 BloomFilterPS(VSOut i) : SV_Target {
-    float4 c = SourceTexture.Sample(LinearClamp, i.uv); float hi=max(c.r,max(c.g,c.b)), lo=min(c.r,min(c.g,c.b));
-    float m = smoothstep(uData[1].z-0.1,uData[1].z+0.05,hi)*smoothstep(uData[1].w-0.05,uData[1].w+0.05,hi-lo);
-    m *= all(i.position.xy >= uData[2].xy) && all(i.position.xy <= uData[2].zw) ? 1.0 : 0.0; return c*m;
-}
-float4 TexturePS(VSOut i) : SV_Target {
-    float sdf=Sdf(i.position.xy,uData[0].xy,uData[0].zw,uData[1].x);
-    float mask=1.0-smoothstep(-0.5,1.0,sdf); clip(mask-0.001);
-    float opacity=saturate(uData[1].y)*mask; float4 source=SourceTexture.Sample(LinearClamp,i.uv);
-    return float4(source.rgb*opacity,opacity);
-}
-float4 BloomCompositePS(VSOut i) : SV_Target {
-    float m=all(i.position.xy>=uData[2].xy)&&all(i.position.xy<=uData[2].zw)?1.0:0.0;
-    return float4(SourceTexture.Sample(LinearClamp,i.uv).rgb*uData[1].y*m,0.0);
-}
-)hlsl";
+        bool ValidShader(const ShaderBinary& shader)
+        {
+            return shader.code != nullptr && shader.sizeBytes != 0;
+        }
 
         EffectConstants MakeShapeConstants(const EffectRect& bounds, float rounding,
                                            float strength, float sigma, EffectColor color,
@@ -175,22 +76,9 @@ float4 BloomCompositePS(VSOut i) : SV_Target {
         ID3D11ShaderResourceView* cachedBlur = nullptr;
         std::string error;
 
-        ComPtr<ID3DBlob> Compile(const char* entry, const char* target)
+        ShaderBinary FindShader(const char* filename) const noexcept
         {
-            ComPtr<ID3DBlob> code;
-            ComPtr<ID3DBlob> errors;
-            const HRESULT result = D3DCompile(kShaderSource, std::strlen(kShaderSource), "IVUI Effects",
-                                              nullptr, nullptr, entry, target,
-                                              D3DCOMPILE_ENABLE_STRICTNESS |
-                                                  D3DCOMPILE_OPTIMIZATION_LEVEL3,
-                                              0, &code, &errors);
-            if (FAILED(result))
-            {
-                error = errors ? static_cast<const char*>(errors->GetBufferPointer()) :
-                                 "D3DCompile failed.";
-                return {};
-            }
-            return code;
+            return ShaderLibrary::Find(ShaderBackend::DirectX, filename);
         }
 
         bool Initialize()
@@ -200,33 +88,36 @@ float4 BloomCompositePS(VSOut i) : SV_Target {
                 error = "DX11 effects require a device.";
                 return false;
             }
-            const ComPtr<ID3DBlob> vertex = Compile("FullscreenVS", "vs_5_0");
-            if (!vertex || FAILED(createInfo.device->CreateVertexShader(vertex->GetBufferPointer(),
-                vertex->GetBufferSize(), nullptr, &vertexShader)))
+            const ShaderBinary vertex = FindShader("effects_fullscreen.vs.cso");
+            if (!ValidShader(vertex) || FAILED(createInfo.device->CreateVertexShader(
+                vertex.code, vertex.sizeBytes, nullptr, &vertexShader)))
             {
-                if (error.empty()) error = "CreateVertexShader failed.";
+                error = "Creating the DX11 fullscreen vertex shader failed.";
                 return false;
             }
-            auto createPixelShader = [&](const char* entry, ComPtr<ID3D11PixelShader>& output)
+            auto createPixelShader = [&](const char* filename, ComPtr<ID3D11PixelShader>& output)
             {
-                const ComPtr<ID3DBlob> code = Compile(entry, "ps_5_0");
-                if (!code)
-                    return false;
-                if (FAILED(createInfo.device->CreatePixelShader(code->GetBufferPointer(),
-                                                                 code->GetBufferSize(), nullptr, &output)))
+                const ShaderBinary code = FindShader(filename);
+                if (!ValidShader(code))
                 {
-                    error = std::string("CreatePixelShader failed for ") + entry + ".";
+                    error = std::string("Missing DX11 effect shader: ") + filename;
+                    return false;
+                }
+                if (FAILED(createInfo.device->CreatePixelShader(
+                    code.code, code.sizeBytes, nullptr, &output)))
+                {
+                    error = std::string("Creating the DX11 effect shader failed: ") + filename;
                     return false;
                 }
                 return true;
             };
-            if (!createPixelShader("BackgroundPS", backgroundShader) ||
-                !createPixelShader("BlurPS", blurShader) ||
-                !createPixelShader("GlassPS", glassShader) ||
-                !createPixelShader("ShapePS", shapeShader) ||
-                !createPixelShader("BloomFilterPS", bloomFilterShader) ||
-                !createPixelShader("TexturePS", textureShader) ||
-                !createPixelShader("BloomCompositePS", bloomCompositeShader))
+            if (!createPixelShader("effects_background.ps.cso", backgroundShader) ||
+                !createPixelShader("effects_blur.ps.cso", blurShader) ||
+                !createPixelShader("effects_material.ps.cso", glassShader) ||
+                !createPixelShader("effects_shape.ps.cso", shapeShader) ||
+                !createPixelShader("effects_bloom.ps.cso", bloomFilterShader) ||
+                !createPixelShader("effects_texture.ps.cso", textureShader) ||
+                !createPixelShader("effects_composite.ps.cso", bloomCompositeShader))
                 return false;
 
             D3D11_BUFFER_DESC bufferDesc{};
@@ -493,17 +384,22 @@ float4 BloomCompositePS(VSOut i) : SV_Target {
     };
 
     std::unique_ptr<EffectRenderer> EffectRenderer::Create(
-        const EffectRendererCreateInfo& createInfo) noexcept
+        const EffectRendererCreateInfo& createInfo, std::string* error) noexcept
     {
         try
         {
             auto impl = std::make_unique<Impl>(createInfo);
             if (!impl->Initialize())
+            {
+                if (error) *error = impl->error;
                 return nullptr;
+            }
+            if (error) error->clear();
             return std::unique_ptr<EffectRenderer>(new EffectRenderer(std::move(impl)));
         }
         catch (...)
         {
+            if (error) *error = "Unexpected DX11 effect renderer initialization failure.";
             return nullptr;
         }
     }

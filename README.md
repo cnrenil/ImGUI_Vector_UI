@@ -27,7 +27,8 @@ serially on their creation thread.
 ```text
 components/ImGuiVectorUI/  Standalone component, public API, backends and tests
 apps/Dx11Host/             Win32/DX11 example host
-apps/Dx12Host/             Win32/DX12 example host and its runtime assets
+apps/Dx12Host/             Win32/DX12 example host
+apps/DemoMenu/             Shared demo menu, font and runtime assets
 apps/VulkanHost/           Win32/Vulkan example host
 tests/package-consumer/    Minimal installed-package consumer
 third_party/imgui/         Workspace-provided Dear ImGui dependency
@@ -67,8 +68,9 @@ $env:VULKAN_SDK = 'D:\Develop_Environments\VulkanSDK\1.4.357.0'
 ```
 
 The executables are named `ImGuiVectorUIDemoDX11`, `ImGuiVectorUIDemo` (DX12), and
-`ImGuiVectorUIDemoVulkan`. The Vulkan target copies its generated SPIR-V shaders into
-the runtime `shaders/` directory automatically.
+`ImGuiVectorUIDemoVulkan`. Compiled effect shaders are embedded in the component
+library, so the executables do not require a runtime shader directory. The demo font
+and its license remain separate runtime assets.
 
 On a normally registered development environment, standard CMake commands remain
 available:
@@ -125,10 +127,11 @@ cmake -S . -B build-vulkan -DIVUI_BUILD_DEMO=OFF -DIVUI_BUILD_VULKAN_EFFECTS=ON
 cmake --build build-vulkan --config Release
 ```
 
-The `ImGuiVectorUIVulkanShaders` target compiles GLSL files under the component's
-`shaders/` directory to SPIR-V. Installed packages expose the generated shader
-directory as `ImGuiVectorUI_SHADER_DIR`; `IVUI::Vulkan::EffectShaderLibrary::Load()`
-loads that generated set.
+`ImGuiVectorUIDirectXShaders` and `ImGuiVectorUIVulkanShaders` compile the
+component's HLSL/GLSL sources. DX11 and DX12 share the same DirectX shader target
+and bytecode. Generated binaries are embedded into `ImGuiVectorUI::ImGuiVectorUI`
+and accessed exclusively through `IVUI::ShaderLibrary`; runtime shader replacement
+and external shader directories are not supported.
 
 ## CMake Targets
 
@@ -153,7 +156,9 @@ Vulkan headers unless a backend-specific header is included.
 #include <ImGuiVectorUI/Backends/PlatformWin32.h>
 #include <ImGuiVectorUI/Backends/RendererDX12.h>
 
-auto effects = IVUI::DX12::EffectRenderer::Create({device, renderTargetFormat});
+std::string error;
+auto effects = IVUI::DX12::EffectRenderer::Create(
+    {device, renderTargetFormat}, &error);
 
 IVUI::UIConfig config;
 config.platform = std::make_unique<IVUI::Win32::PlatformBackend>(hwnd);
@@ -165,7 +170,6 @@ config.configureFonts = [](ImGuiIO& io, ImFont*& regular, ImFont*& title) {
     title = regular;
 };
 
-std::string error;
 auto ui = IVUI::UI::Create(std::move(config), &error);
 ```
 

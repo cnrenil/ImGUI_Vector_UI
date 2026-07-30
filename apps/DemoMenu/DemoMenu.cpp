@@ -1,4 +1,4 @@
-/** @file DemoMenu.cpp @brief Interactive ImGuiVectorUI demonstration menu. */
+/** @file DemoMenu.cpp @brief Backend-neutral interactive ImGuiVectorUI demo menu. */
 #include "DemoMenu.h"
 
 #include "imgui.h"
