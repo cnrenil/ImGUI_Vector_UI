@@ -18,7 +18,7 @@ namespace IVUI
 
         const bool show = needed && (hovered || a.capturing);
         a.direction = show ? 1.0f : -1.0f;
-        a.t = ImClamp(a.t + DeltaTime() * 8.0f * a.direction, 0.0f, 1.0f);
+        a.t = AdvanceProgress(a.t, a.direction > 0.0f ? 1.0f : 0.0f, 8.0f);
         if (!needed)
             a.capturing = false;
         if (a.t <= 0.001f)

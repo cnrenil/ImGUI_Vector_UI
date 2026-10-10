@@ -10,9 +10,12 @@
 #include <type_traits>
 
 struct ImDrawList;
+struct ImDrawData;
 
 namespace IVUI
 {
+    class IEffectRenderer;
+
     enum class EffectId : std::uint32_t
     {
         BackdropBlur = 1,
@@ -31,7 +34,9 @@ namespace IVUI
         GlassMaterial = 1u << 2,
         Shadow = 1u << 3,
         Glow = 1u << 4,
-        Bloom = 1u << 5
+        Bloom = 1u << 5,
+        ItemEffects = 1u << 6,
+        ItemSourceReplacement = 1u << 7
     };
 
     constexpr EffectCapabilities operator|(EffectCapabilities lhs, EffectCapabilities rhs) noexcept
@@ -46,6 +51,11 @@ namespace IVUI
                                                static_cast<std::uint32_t>(rhs));
     }
 
+    constexpr EffectCapabilities operator~(EffectCapabilities value) noexcept
+    {
+        return static_cast<EffectCapabilities>(~static_cast<std::uint32_t>(value));
+    }
+
     constexpr EffectCapabilities& operator|=(EffectCapabilities& lhs, EffectCapabilities rhs) noexcept
     {
         lhs = lhs | rhs;
@@ -55,7 +65,8 @@ namespace IVUI
     inline constexpr EffectCapabilities AllEffectCapabilities =
         EffectCapabilities::BackdropCapture | EffectCapabilities::BackdropBlur |
         EffectCapabilities::GlassMaterial | EffectCapabilities::Shadow |
-        EffectCapabilities::Glow | EffectCapabilities::Bloom;
+        EffectCapabilities::Glow | EffectCapabilities::Bloom |
+        EffectCapabilities::ItemEffects | EffectCapabilities::ItemSourceReplacement;
 
     constexpr bool HasEffectCapabilities(EffectCapabilities available,
                                          EffectCapabilities required) noexcept
@@ -195,6 +206,118 @@ namespace IVUI
         float strength = 0.35f;
         float brightnessThreshold = 0.72f;
         float saturationThreshold = 0.0f;
+    };
+
+    enum class ItemEffectType : std::uint32_t
+    {
+        Shadow,
+        Glow,
+        Blur
+    };
+
+    enum class ItemEffectFlags : std::uint32_t
+    {
+        None = 0,
+        ReplaceSource = 1u << 0
+    };
+
+    constexpr ItemEffectFlags operator|(ItemEffectFlags lhs, ItemEffectFlags rhs) noexcept
+    {
+        return static_cast<ItemEffectFlags>(static_cast<std::uint32_t>(lhs) |
+                                            static_cast<std::uint32_t>(rhs));
+    }
+
+    constexpr ItemEffectFlags operator&(ItemEffectFlags lhs, ItemEffectFlags rhs) noexcept
+    {
+        return static_cast<ItemEffectFlags>(static_cast<std::uint32_t>(lhs) &
+                                            static_cast<std::uint32_t>(rhs));
+    }
+
+    constexpr bool HasItemEffectFlags(ItemEffectFlags available,
+                                      ItemEffectFlags required) noexcept
+    {
+        return (available & required) == required;
+    }
+
+    struct ItemEffectLayer
+    {
+        ItemEffectType type = ItemEffectType::Glow;
+        ItemEffectFlags flags = ItemEffectFlags::None;
+        EffectVec2 offset{};
+        EffectColor color{1.0f, 1.0f, 1.0f, 1.0f};
+        float sigma = 8.0f;
+        float strength = 0.5f;
+        float opacity = 1.0f;
+
+        static constexpr ItemEffectLayer Shadow(EffectColor color, EffectVec2 offset,
+                                                float sigma, float strength) noexcept
+        {
+            return {ItemEffectType::Shadow, ItemEffectFlags::None, offset, color,
+                    sigma, strength, 1.0f};
+        }
+
+        static constexpr ItemEffectLayer Glow(EffectColor color, float sigma,
+                                              float strength) noexcept
+        {
+            return {ItemEffectType::Glow, ItemEffectFlags::None, {}, color,
+                    sigma, strength, 1.0f};
+        }
+
+        static constexpr ItemEffectLayer Blur(float sigma, float opacity = 1.0f,
+                                              bool replaceSource = true) noexcept
+        {
+            return {ItemEffectType::Blur,
+                    replaceSource ? ItemEffectFlags::ReplaceSource : ItemEffectFlags::None,
+                    {}, {}, sigma, 1.0f, opacity};
+        }
+    };
+
+    /** A bounded stack of effects evaluated from back to front for one item. */
+    struct ItemEffectRequest
+    {
+        std::array<ItemEffectLayer, 4> layers{};
+        std::uint32_t layerCount = 0;
+
+        constexpr bool Add(const ItemEffectLayer& layer) noexcept
+        {
+            if (layerCount >= layers.size())
+                return false;
+            layers[layerCount++] = layer;
+            return true;
+        }
+
+        static constexpr ItemEffectRequest From(const ItemEffectLayer& layer) noexcept
+        {
+            ItemEffectRequest request{};
+            request.Add(layer);
+            return request;
+        }
+    };
+
+    struct ItemEffectDrawData;
+
+    /** Move-only scope capturing draw geometry emitted before destruction. */
+    class ItemEffectScope
+    {
+    public:
+        ItemEffectScope() noexcept = default;
+        ~ItemEffectScope();
+        ItemEffectScope(ItemEffectScope&& other) noexcept;
+        ItemEffectScope& operator=(ItemEffectScope&& other) noexcept;
+        ItemEffectScope(const ItemEffectScope&) = delete;
+        ItemEffectScope& operator=(const ItemEffectScope&) = delete;
+
+        explicit operator bool() const noexcept { return active_; }
+        void End() noexcept;
+
+    private:
+        friend ItemEffectScope BeginItemEffect(ImDrawList*, IEffectRenderer&,
+                                                const ItemEffectRequest&);
+        ImDrawList* drawList_ = nullptr;
+        std::shared_ptr<void> data_;
+        std::weak_ptr<void> contextLifetime_;
+        void* context_ = nullptr;
+        bool active_ = false;
     };
 
     /** Pointer-free command value copied into ImDrawList callback storage. */
@@ -364,6 +487,12 @@ namespace IVUI
         virtual ~IEffectRenderer() = default;
         virtual EffectCapabilities GetCapabilities() const noexcept = 0;
         virtual void RenderEffect(const EffectRequest& request) noexcept = 0;
+        virtual void RenderItemEffects(const ItemEffectRequest& request,
+                                       const ItemEffectDrawData& drawData) noexcept
+        {
+            (void)request;
+            (void)drawData;
+        }
         virtual IEffectRenderer* GetBackendRenderer() noexcept { return this; }
     };
 
@@ -386,6 +515,8 @@ namespace IVUI
         void SetBackend(IEffectRenderer* backend) noexcept;
         EffectCapabilities GetCapabilities() const noexcept override;
         void RenderEffect(const EffectRequest& request) noexcept override;
+        void RenderItemEffects(const ItemEffectRequest& request,
+                               const ItemEffectDrawData& drawData) noexcept override;
         IEffectRenderer* GetBackendRenderer() noexcept override;
 
     private:
@@ -403,4 +534,12 @@ namespace IVUI
     /** Convenience overload using ImGui::GetWindowDrawList(). */
     void SubmitEffect(IEffectRenderer& renderer, const EffectRequest& request);
 #endif
+
+    /** Begins capturing geometry subsequently emitted to @p drawList. */
+    ItemEffectScope BeginItemEffect(ImDrawList* drawList, IEffectRenderer& renderer,
+                                    const ItemEffectRequest& request);
+
+    /** Convenience overload using ImGui::GetWindowDrawList(). */
+    ItemEffectScope BeginItemEffect(IEffectRenderer& renderer,
+                                    const ItemEffectRequest& request);
 }

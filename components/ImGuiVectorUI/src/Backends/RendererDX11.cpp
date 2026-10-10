@@ -37,7 +37,9 @@ namespace IVUI::DX11
             return false;
         }
         auto* effectRenderer = dynamic_cast<EffectRenderer*>(effects ? effects->GetBackendRenderer() : nullptr);
-        if (effectRenderer && !effectRenderer->BeginFrame(frame->effects))
+        EffectRendererFrameInfo effectFrame = frame->effects;
+        effectFrame.drawData = &drawData;
+        if (effectRenderer && !effectRenderer->BeginFrame(effectFrame))
         {
             error = effectRenderer->GetLastError();
             return false;

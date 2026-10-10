@@ -3,6 +3,7 @@
 
 #include "imgui_internal.h" // ImLerp
 
+#include <algorithm>
 #include <cmath> // expf
 #include <stdexcept>
 
@@ -17,6 +18,61 @@ namespace IVUI
         return (c & ~IM_COL32_A_MASK) | ((ImU32)a << IM_COL32_A_SHIFT);
     }
 
+    static EffectColor ToEffectColor(ImU32 color)
+    {
+        const ImVec4 value = ImGui::ColorConvertU32ToFloat4(color);
+        return {value.x, value.y, value.z, value.w};
+    }
+
+    static void FillElementStyles(Theme& t, Style style)
+    {
+        ItemMotionStyle motion = ItemMotionStyle::FadeSlide();
+        switch (style)
+        {
+        case Style::Vape:
+            motion = ItemMotionStyle::FadeSlide({10.0f, 0.0f}, 0.16f);
+            motion.scale = 1.0f;
+            break;
+        case Style::Neverlose:
+            motion = ItemMotionStyle::FadeSlide({8.0f, 0.0f}, 0.14f);
+            motion.scale = 1.0f;
+            break;
+        case Style::ImGuiClassic:
+            motion = ItemMotionStyle::Fade(0.08f);
+            motion.animateInitial = false;
+            break;
+        case Style::iOSGlass:
+            motion = ItemMotionStyle::FadeSlide({0.0f, 10.0f}, 0.24f);
+            motion.enterEasing = EASE_OUT_CIRC;
+            motion.exitEasing = EASE_IN_CIRC;
+            motion.scale = 0.96f;
+            break;
+        default:
+            break;
+        }
+
+        for (ElementVisualStyle& element : t.Elements)
+        {
+            element.effects = {};
+            element.motion = motion;
+        }
+
+        const EffectColor accent = ToEffectColor(t.Accent);
+        const float sigma = (std::max)(t.WidgetGlowSpread * 0.5f, 0.5f);
+        t.ForElement(ElementRole::Button).effects.Add(
+            ItemEffectLayer::Glow(accent, sigma, 0.75f));
+        t.ForElement(ElementRole::ProminentButton).effects.Add(
+            ItemEffectLayer::Glow(accent, sigma, 1.15f));
+        t.ForElement(ElementRole::Toggle).effects.Add(
+            ItemEffectLayer::Glow(accent, sigma * 0.75f, 0.65f));
+        t.ForElement(ElementRole::Panel).effects.Add(ItemEffectLayer::Shadow(
+            {0.0f, 0.0f, 0.0f, 0.8f}, {0.0f, 6.0f},
+            (std::max)(t.PanelShadowSpread * 0.5f, 0.5f), t.PanelShadow));
+        t.ForElement(ElementRole::Notification).effects.Add(ItemEffectLayer::Shadow(
+            {0.0f, 0.0f, 0.0f, 0.72f}, {0.0f, 5.0f}, 7.0f, 0.45f));
+        t.ForElement(ElementRole::Text).motion = ItemMotionStyle::Fade(0.18f);
+    }
+
     Theme ScaleThemeAlpha(const Theme& src, float a)
     {
         a = (a < 0.0f) ? 0.0f : (a > 1.0f ? 1.0f : a);
@@ -25,7 +81,7 @@ namespace IVUI
             &t.Accent, &t.AccentHover, &t.AccentActive, &t.AccentMuted, &t.OnAccent,
             &t.Surface0, &t.Surface1, &t.Surface2, &t.Overlay, &t.Border, &t.BorderMuted,
             &t.Text, &t.TextMuted, &t.TextDisabled, &t.TrackOff, &t.TrackOn, &t.Knob,
-            &t.HoverTint, &t.GlassTint
+            &t.HoverTint, &t.GlassTint, &t.Success, &t.Warning, &t.Error, &t.Info
         };
         for (ImU32* c : cols)
         {
@@ -44,6 +100,9 @@ namespace IVUI
         t.HudPanelAlpha *= a;
         t.HudRowAlpha *= a;
         t.HudRainbowGlow *= a;
+        for (ElementVisualStyle& element : t.Elements)
+            for (std::uint32_t index = 0; index < element.effects.layerCount; ++index)
+                element.effects.layers[index].opacity *= a;
         return t;
     }
 
@@ -55,6 +114,10 @@ namespace IVUI
         t.AccentMuted = WithAlpha(t.Accent, 80);
         t.Knob = t.Accent;
         t.TrackOn = LerpCol(t.Accent, IM_COL32_BLACK, 0.35f);
+        for (ElementVisualStyle& element : t.Elements)
+            for (std::uint32_t index = 0; index < element.effects.layerCount; ++index)
+                if (element.effects.layers[index].type == ItemEffectType::Glow)
+                    element.effects.layers[index].color = ToEffectColor(t.Accent);
     }
 
     static void FillCommonMetrics(Theme& t)
@@ -120,11 +183,12 @@ namespace IVUI
         t.Selection = SEL_FullFill;
         t.HudLayout = HUD_Chips;
         t.FillGradient = false;
-        t.DynamicIslandToast = false;
+        t.Notifications = {};
         if (t.HoverTint == 0) // default only if a preset didn't set it
             t.HoverTint = IM_COL32(255, 255, 255, 14);
 
         t.Scale = 1.0f;
+        FillElementStyles(t, Style::MaterialYou);
     }
 
     Theme ThemeInjectionPeach()
@@ -245,6 +309,7 @@ namespace IVUI
             t.PanelShadowSpread = 20.0f;
             t.Selection = SEL_FullFill;
             t.KnobRoundFrac = 1.0f;
+            FillElementStyles(t, Style::MaterialYou);
             return t;
         }
         case Style::Vape:
@@ -292,6 +357,7 @@ namespace IVUI
             t.PanelShadow = 0.72f;
             t.PanelShadowSpread = 22.0f;
             t.BackdropAlpha = 0.90f;
+            FillElementStyles(t, Style::Vape);
             return t;
         }
         case Style::Neverlose:
@@ -341,6 +407,7 @@ namespace IVUI
             t.PanelShadow = 0.64f;
             t.PanelShadowSpread = 20.0f;
             t.BackdropAlpha = 0.82f;
+            FillElementStyles(t, Style::Neverlose);
             return t;
         }
         case Style::ImGuiClassic:
@@ -380,6 +447,7 @@ namespace IVUI
             t.BloomSaturation = 0.20f;
             t.BloomSigma = 1.0f;
             t.BackdropBlurSigma = 0.0f;
+            FillElementStyles(t, Style::ImGuiClassic);
             return t;
         }
         case Style::iOSGlass:
@@ -442,7 +510,19 @@ namespace IVUI
             t.PanelShadow = 0.52f;
             t.PanelShadowSpread = 30.0f;
             t.BackdropAlpha = 0.34f;
-            t.DynamicIslandToast = true;
+            t.Notifications.style = NotificationStyle::DynamicIsland;
+            t.Notifications.placement = NotificationPlacement::TopCenter;
+            t.Notifications.width = 0.0f;
+            t.Notifications.maxWidth = 460.0f;
+            t.Notifications.duration = 5.0f;
+            t.Notifications.showProgress = false;
+            t.Notifications.offset = ImVec2(0.0f, 4.0f);
+            FillElementStyles(t, Style::iOSGlass);
+            ElementVisualStyle& notification = t.ForElement(ElementRole::Notification);
+            notification.motion = ItemMotionStyle::FadeSlide({0.0f, -12.0f}, 0.28f);
+            notification.motion.scale = 0.72f;
+            notification.motion.enterEasing = EASE_OUT_CIRC;
+            notification.motion.exitEasing = EASE_IN_CIRC;
             return t;
         }
         }
@@ -460,12 +540,62 @@ namespace IVUI
         }
     }
 
-    bool StyleIsDynamicIsland(Style s) { return s == Style::iOSGlass; }
 
-    static const Theme g_fallback = ThemeInjectionPeach();
+    static const Theme g_fallback = MakeTheme();
 
     static void MorphColor(ImU32& c, ImU32 target, float k) { c = LerpCol(c, target, k); }
     static void MorphF(float& v, float target, float k) { v += (target - v) * k; }
+
+    static void MorphElementStyle(ElementVisualStyle& live,
+                                  const ElementVisualStyle& target, float k)
+    {
+        bool compatible = live.effects.layerCount == target.effects.layerCount;
+        for (std::uint32_t index = 0; compatible && index < live.effects.layerCount; ++index)
+            compatible = live.effects.layers[index].type == target.effects.layers[index].type;
+        if (!compatible)
+        {
+            bool faded = true;
+            for (std::uint32_t index = 0; index < live.effects.layerCount; ++index)
+            {
+                MorphF(live.effects.layers[index].opacity, 0.0f, k);
+                faded = faded && live.effects.layers[index].opacity < 0.01f;
+            }
+            if (faded)
+            {
+                live.effects = target.effects;
+                for (std::uint32_t index = 0; index < live.effects.layerCount; ++index)
+                    live.effects.layers[index].opacity = 0.0f;
+            }
+        }
+        else
+        {
+            for (std::uint32_t index = 0; index < live.effects.layerCount; ++index)
+            {
+                ItemEffectLayer& layer = live.effects.layers[index];
+                const ItemEffectLayer& destination = target.effects.layers[index];
+                MorphF(layer.offset.x, destination.offset.x, k);
+                MorphF(layer.offset.y, destination.offset.y, k);
+                MorphF(layer.color.r, destination.color.r, k);
+                MorphF(layer.color.g, destination.color.g, k);
+                MorphF(layer.color.b, destination.color.b, k);
+                MorphF(layer.color.a, destination.color.a, k);
+                MorphF(layer.sigma, destination.sigma, k);
+                MorphF(layer.strength, destination.strength, k);
+                MorphF(layer.opacity, destination.opacity, k);
+                layer.flags = destination.flags;
+            }
+        }
+
+        MorphF(live.motion.enterDuration, target.motion.enterDuration, k);
+        MorphF(live.motion.exitDuration, target.motion.exitDuration, k);
+        MorphF(live.motion.offset.x, target.motion.offset.x, k);
+        MorphF(live.motion.offset.y, target.motion.offset.y, k);
+        MorphF(live.motion.scale, target.motion.scale, k);
+        MorphF(live.motion.minimumAlpha, target.motion.minimumAlpha, k);
+        live.motion.enterEasing = target.motion.enterEasing;
+        live.motion.exitEasing = target.motion.exitEasing;
+        live.motion.animateInitial = target.motion.animateInitial;
+    }
 
     void SetTargetTheme(const Theme& t)
     {
@@ -488,14 +618,16 @@ namespace IVUI
 
         Theme& L = c->themeLive;
         const Theme& T = c->themeTarget;
-        const float k = 1.0f - expf(-12.0f * dt); // framerate-independent smoothing
+        const float k = c->motion.reducedMotion ? 1.0f : -std::expm1(-12.0f * dt);
 
         ImU32* lc[] = { &L.Accent,&L.AccentHover,&L.AccentActive,&L.AccentMuted,&L.OnAccent,
             &L.Surface0,&L.Surface1,&L.Surface2,&L.Overlay,&L.Border,&L.BorderMuted,
-            &L.Text,&L.TextMuted,&L.TextDisabled,&L.TrackOff,&L.TrackOn,&L.Knob,&L.HoverTint,&L.GlassTint };
+            &L.Text,&L.TextMuted,&L.TextDisabled,&L.TrackOff,&L.TrackOn,&L.Knob,&L.HoverTint,&L.GlassTint,
+            &L.Success,&L.Warning,&L.Error,&L.Info };
         const ImU32* tc[] = { &T.Accent,&T.AccentHover,&T.AccentActive,&T.AccentMuted,&T.OnAccent,
             &T.Surface0,&T.Surface1,&T.Surface2,&T.Overlay,&T.Border,&T.BorderMuted,
-            &T.Text,&T.TextMuted,&T.TextDisabled,&T.TrackOff,&T.TrackOn,&T.Knob,&T.HoverTint,&T.GlassTint };
+            &T.Text,&T.TextMuted,&T.TextDisabled,&T.TrackOff,&T.TrackOn,&T.Knob,&T.HoverTint,&T.GlassTint,
+            &T.Success,&T.Warning,&T.Error,&T.Info };
         for (int i = 0; i < (int)(sizeof(lc) / sizeof(lc[0])); ++i)
             MorphColor(*lc[i], *tc[i], k);
 
@@ -550,6 +682,16 @@ namespace IVUI
         MorphF(L.HudBorderThickness, T.HudBorderThickness, k);
         MorphF(L.HudRainbowSpeed, T.HudRainbowSpeed, k);
         MorphF(L.HudRainbowGlow, T.HudRainbowGlow, k);
+        MorphF(L.Notifications.viewportPadding.x, T.Notifications.viewportPadding.x, k);
+        MorphF(L.Notifications.viewportPadding.y, T.Notifications.viewportPadding.y, k);
+        MorphF(L.Notifications.offset.x, T.Notifications.offset.x, k);
+        MorphF(L.Notifications.offset.y, T.Notifications.offset.y, k);
+        MorphF(L.Notifications.width, T.Notifications.width, k);
+        MorphF(L.Notifications.maxWidth, T.Notifications.maxWidth, k);
+        MorphF(L.Notifications.spacing, T.Notifications.spacing, k);
+        MorphF(L.Notifications.duration, T.Notifications.duration, k);
+        for (std::size_t index = 0; index < L.Elements.size(); ++index)
+            MorphElementStyle(L.Elements[index], T.Elements[index], k);
 
         // Font changes require atlas rebuilds; discrete visual modes must not interpolate.
         L.Scale = T.Scale;
@@ -561,7 +703,14 @@ namespace IVUI
         L.Selection = T.Selection;
         L.HudLayout = T.HudLayout;
         L.FillGradient = T.FillGradient;
-        L.DynamicIslandToast = T.DynamicIslandToast;
+        L.Notifications.style = T.Notifications.style;
+        L.Notifications.placement = T.Notifications.placement;
+        L.Notifications.pauseOnHover = T.Notifications.pauseOnHover;
+        L.Notifications.dismissOnClick = T.Notifications.dismissOnClick;
+        L.Notifications.showProgress = T.Notifications.showProgress;
+        L.Notifications.clampToViewport = T.Notifications.clampToViewport;
+        L.Notifications.deduplicate = T.Notifications.deduplicate;
+        L.Notifications.queueLimit = T.Notifications.queueLimit;
 
         if (!c->themeStack.empty())
             c->themeStack.front() = L;

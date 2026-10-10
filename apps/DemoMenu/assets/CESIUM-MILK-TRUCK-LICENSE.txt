@@ -1,0 +1,11 @@
+Cesium Milk Truck
+
+Source:
+https://github.com/KhronosGroup/glTF-Sample-Models/tree/main/2.0/CesiumMilkTruck
+
+The model was donated by Cesium for glTF testing and is licensed under the
+Creative Commons Attribution 4.0 International License:
+https://creativecommons.org/licenses/by/4.0/
+
+Cesium trademark terms:
+https://github.com/AnalyticalGraphicsInc/cesium/wiki/CesiumTrademark.pdf

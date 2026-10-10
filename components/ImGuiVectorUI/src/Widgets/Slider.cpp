@@ -1,6 +1,7 @@
 #include "ImGuiVectorUI/Widgets/Slider.h"
 
 #include "ImGuiVectorUI/Core/Id.h"
+#include "ImGuiVectorUI/Core/Motion.h"
 #include "ImGuiVectorUI/Core/Easing.h"
 #include "ImGuiVectorUI/Theme/Theme.h"
 #include "ImGuiVectorUI/Drawing/DrawText.h"
@@ -78,7 +79,7 @@ namespace IVUI
 
         const float percent = (mx > mn) ? (*v - mn) / (mx - mn) : 0.0f;
         if (fabsf(percent - a.lastTarget) > 1e-4f) { a.lastTarget = percent; a.t = 0.0f; }
-        a.t = ImClamp(a.t + DeltaTime() * 8.0f, 0.0f, 1.0f);
+        a.t = AdvanceProgress(a.t, 1.0f, 8.0f);
         a.currentPercent = EaseValue(a.currentPercent, percent, a.t, EASE_LINEAR);
 
         DrawTrack(bgPos, size, a.currentPercent);
@@ -105,7 +106,7 @@ namespace IVUI
 
         const float percent = (segments > 1) ? (float)(*v) / (segments - 1) : 0.0f;
         if (fabsf(percent - a.lastTarget) > 1e-4f) { a.lastTarget = percent; a.t = 0.0f; }
-        a.t = ImClamp(a.t + DeltaTime() * 8.0f, 0.0f, 1.0f);
+        a.t = AdvanceProgress(a.t, 1.0f, 8.0f);
         a.currentPercent = EaseValue(a.currentPercent, percent, a.t, EASE_LINEAR);
 
         DrawTrack(bgPos, size, a.currentPercent);
@@ -143,7 +144,7 @@ namespace IVUI
         const float target = (float)(*v);
         if (fabsf(a.currentValue - target) > 0.01f)
         {
-            a.currentValue += (target - a.currentValue) * ImClamp(DeltaTime() * 12.0f, 0.0f, 1.0f);
+            a.currentValue += (target - a.currentValue) * MotionResponse(12.0f);
             if (fabsf(a.currentValue - target) < 0.01f)
                 a.currentValue = target;
         }

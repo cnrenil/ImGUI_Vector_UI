@@ -34,13 +34,13 @@ namespace IVUI
             const ImVec2 ms = CalcTextScaled(message, th.FontSizeLabel);
             ImGui::Dummy(ImVec2(ImMax(ms.x, 220.0f * S), ms.y + 14.0f * S));
 
-            if (Button(yes, ImVec2(120.0f * S, 0.0f), true))
+            if (Button(yes, {.size = ImVec2(120.0f * S, 0.0f), .prominent = true}))
             {
                 confirmed = true;
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (Button(no, ImVec2(120.0f * S, 0.0f)))
+            if (Button(no, {.size = ImVec2(120.0f * S, 0.0f)}))
                 ImGui::CloseCurrentPopup();
 
             ImGui::EndPopup();

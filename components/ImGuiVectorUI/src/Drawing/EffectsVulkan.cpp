@@ -1,11 +1,15 @@
 #include "ImGuiVectorUI/Backends/EffectsVulkan.h"
 #include "ImGuiVectorUI/Backends/ShaderLibrary.h"
+#include "ItemEffectsInternal.h"
+
+#include "imgui_impl_vulkan.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
 #include <exception>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -53,6 +57,26 @@ namespace IVUI::Vulkan
             constants.values[13] = offset.y;
             return constants;
         }
+
+        EffectConstants MakeItemCompositeConstants(const ItemEffectLayer& layer,
+                                                    EffectExtent extent,
+                                                    ImVec2 framebufferScale)
+        {
+            EffectConstants constants{};
+            constants.values[0] = layer.color.r;
+            constants.values[1] = layer.color.g;
+            constants.values[2] = layer.color.b;
+            constants.values[3] = layer.color.a;
+            constants.values[4] = extent.width != 0
+                ? layer.offset.x * framebufferScale.x / static_cast<float>(extent.width) : 0.0f;
+            constants.values[5] = extent.height != 0
+                ? layer.offset.y * framebufferScale.y / static_cast<float>(extent.height) : 0.0f;
+            constants.values[6] = layer.strength;
+            constants.values[7] = layer.opacity;
+            constants.values[8] = static_cast<float>(layer.type);
+            constants.values[31] = 1.0f;
+            return constants;
+        }
     }
 
     struct EffectRenderer::Impl
@@ -62,6 +86,12 @@ namespace IVUI::Vulkan
             VkImage image = VK_NULL_HANDLE;
             VkDeviceMemory memory = VK_NULL_HANDLE;
             VkImageView view = VK_NULL_HANDLE;
+        };
+
+        struct UploadBuffer
+        {
+            VkBuffer buffer = VK_NULL_HANDLE;
+            VkDeviceMemory memory = VK_NULL_HANDLE;
         };
 
         struct FrameResources
@@ -75,6 +105,7 @@ namespace IVUI::Vulkan
             VkFramebuffer targetFramebuffer = VK_NULL_HANDLE;
             VkImageView targetView = VK_NULL_HANDLE;
             std::array<VkDescriptorSet, 3> descriptorSets{};
+            std::vector<UploadBuffer> itemUploads;
             bool sourceInitialized = false;
             bool prepared = false;
             bool captureValid = false;
@@ -99,6 +130,7 @@ namespace IVUI::Vulkan
         VkPipeline shapePipeline = VK_NULL_HANDLE;
         VkPipeline bloomFilterPipeline = VK_NULL_HANDLE;
         VkPipeline bloomCompositePipeline = VK_NULL_HANDLE;
+        VkPipeline itemCompositePipeline = VK_NULL_HANDLE;
         std::vector<FrameResources> frames;
         EffectExtent resourceExtent{};
         bool frameActive = false;
@@ -109,6 +141,8 @@ namespace IVUI::Vulkan
         {
             DestroyResources();
             const VkDevice device = createInfo.device;
+            if (itemCompositePipeline)
+                vkDestroyPipeline(device, itemCompositePipeline, createInfo.allocator);
             if (bloomCompositePipeline)
                 vkDestroyPipeline(device, bloomCompositePipeline, createInfo.allocator);
             if (bloomFilterPipeline)
@@ -227,7 +261,7 @@ namespace IVUI::Vulkan
             VkAttachmentDescription attachment{};
             attachment.format = createInfo.targetFormat;
             attachment.samples = VK_SAMPLE_COUNT_1_BIT;
-            attachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+            attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
             attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
             attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
             attachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -415,6 +449,8 @@ namespace IVUI::Vulkan
                 vertex, bloom, offscreenRenderPass, 0, false);
             bloomCompositePipeline = CreatePipeline(
                 vertex, composite, createInfo.renderPass, createInfo.subpass, true, true);
+            itemCompositePipeline = CreatePipeline(
+                vertex, composite, loadRenderPass, 0, true);
             vkDestroyShaderModule(createInfo.device, composite, createInfo.allocator);
             vkDestroyShaderModule(createInfo.device, bloom, createInfo.allocator);
             vkDestroyShaderModule(createInfo.device, shape, createInfo.allocator);
@@ -424,7 +460,7 @@ namespace IVUI::Vulkan
             vkDestroyShaderModule(createInfo.device, vertex, createInfo.allocator);
             return backgroundOffscreenPipeline && backgroundMainPipeline && blurPipeline &&
                    materialPipeline && shapePipeline && bloomFilterPipeline &&
-                   bloomCompositePipeline;
+                   bloomCompositePipeline && itemCompositePipeline;
         }
 
         void DestroyImage(Image& image)
@@ -435,10 +471,23 @@ namespace IVUI::Vulkan
             image = {};
         }
 
+        void DestroyUploads(FrameResources& resources)
+        {
+            for (const UploadBuffer& upload : resources.itemUploads)
+            {
+                if (upload.buffer)
+                    vkDestroyBuffer(createInfo.device, upload.buffer, createInfo.allocator);
+                if (upload.memory)
+                    vkFreeMemory(createInfo.device, upload.memory, createInfo.allocator);
+            }
+            resources.itemUploads.clear();
+        }
+
         void DestroyResources()
         {
             for (auto& resources : frames)
             {
+                DestroyUploads(resources);
                 if (resources.targetFramebuffer)
                     vkDestroyFramebuffer(createInfo.device, resources.targetFramebuffer,
                                          createInfo.allocator);
@@ -647,6 +696,9 @@ namespace IVUI::Vulkan
             begin.renderPass = offscreenRenderPass;
             begin.framebuffer = framebuffer;
             begin.renderArea.extent = {frame.extent.width, frame.extent.height};
+            VkClearValue clear{};
+            begin.clearValueCount = 1;
+            begin.pClearValues = &clear;
             vkCmdBeginRenderPass(frame.commandBuffer, &begin, VK_SUBPASS_CONTENTS_INLINE);
             SetViewport(frame.commandBuffer);
             vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
@@ -659,14 +711,19 @@ namespace IVUI::Vulkan
             vkCmdEndRenderPass(frame.commandBuffer);
         }
 
-        void BlurSource(FrameResources& resources, float sigma)
+        void BlurSource(FrameResources& resources, float sigmaX, float sigmaY)
         {
             DrawOffscreen(resources.pingFramebuffer, blurPipeline,
                           resources.descriptorSets[0],
-                          MakeBlurEffectConstants(frame.extent, {1.0f, 0.0f}, sigma));
+                          MakeBlurEffectConstants(frame.extent, {1.0f, 0.0f}, sigmaX));
             DrawOffscreen(resources.pongFramebuffer, blurPipeline,
                           resources.descriptorSets[1],
-                          MakeBlurEffectConstants(frame.extent, {0.0f, 1.0f}, sigma));
+                          MakeBlurEffectConstants(frame.extent, {0.0f, 1.0f}, sigmaY));
+        }
+
+        void BlurSource(FrameResources& resources, float sigma)
+        {
+            BlurSource(resources, sigma, sigma);
         }
 
         void BeginLoadPass(FrameResources& resources)
@@ -723,7 +780,8 @@ namespace IVUI::Vulkan
                          VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                          VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
                          VK_ACCESS_TRANSFER_READ_BIT,
-                         VK_ACCESS_COLOR_ATTACHMENT_READ_BIT,
+                         VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+                             VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
                          VK_PIPELINE_STAGE_TRANSFER_BIT,
                          VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
             resources.captureValid = true;
@@ -773,6 +831,7 @@ namespace IVUI::Vulkan
             if (!EnsureResources(info.extent))
                 return false;
             FrameResources& resources = frames[info.frameIndex % frames.size()];
+            DestroyUploads(resources);
             if (info.allowTargetCapture &&
                 !EnsureTargetFramebuffer(resources, info.targetView))
                 return false;
@@ -856,6 +915,244 @@ namespace IVUI::Vulkan
             vkCmdPushConstants(frame.commandBuffer, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT,
                                0, kPushConstantSize, constants.values.data());
             vkCmdDraw(frame.commandBuffer, 3, 1, 0, 0);
+        }
+
+        bool UploadItemDrawData(FrameResources& resources,
+                                const ItemEffectDrawData& drawData,
+                                VkBuffer& buffer, VkDeviceSize& indexOffset)
+        {
+            constexpr VkDeviceSize maxSize = std::numeric_limits<VkDeviceSize>::max();
+            if (drawData.vertices.size() > maxSize / sizeof(ImDrawVert) ||
+                drawData.indices.size() > maxSize / sizeof(std::uint32_t))
+            {
+                error = "Vulkan item-effect geometry exceeds buffer limits.";
+                return false;
+            }
+            const VkDeviceSize vertexSize =
+                static_cast<VkDeviceSize>(drawData.vertices.size()) * sizeof(ImDrawVert);
+            const VkDeviceSize indexSize =
+                static_cast<VkDeviceSize>(drawData.indices.size()) * sizeof(std::uint32_t);
+            if (vertexSize > maxSize - 3u ||
+                ((vertexSize + 3u) & ~VkDeviceSize{3u}) > maxSize - indexSize)
+            {
+                error = "Vulkan item-effect geometry exceeds buffer limits.";
+                return false;
+            }
+            indexOffset = (vertexSize + 3u) & ~VkDeviceSize{3u};
+
+            UploadBuffer upload{};
+            VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+            bufferInfo.size = indexOffset + indexSize;
+            bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+            bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            if (!Check(vkCreateBuffer(createInfo.device, &bufferInfo, createInfo.allocator,
+                                      &upload.buffer),
+                       "Creating a Vulkan item-effect upload buffer failed."))
+                return false;
+
+            VkMemoryRequirements requirements{};
+            vkGetBufferMemoryRequirements(createInfo.device, upload.buffer, &requirements);
+            std::uint32_t memoryType = FindMemoryType(
+                requirements.memoryTypeBits,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+            bool coherent = memoryType != UINT32_MAX;
+            if (!coherent)
+                memoryType = FindMemoryType(requirements.memoryTypeBits,
+                                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+            if (memoryType == UINT32_MAX)
+            {
+                error = "No host-visible memory type is available for Vulkan item effects.";
+                vkDestroyBuffer(createInfo.device, upload.buffer, createInfo.allocator);
+                return false;
+            }
+
+            VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+            allocation.allocationSize = requirements.size;
+            allocation.memoryTypeIndex = memoryType;
+            if (!Check(vkAllocateMemory(createInfo.device, &allocation, createInfo.allocator,
+                                        &upload.memory),
+                       "Allocating Vulkan item-effect upload memory failed.") ||
+                !Check(vkBindBufferMemory(createInfo.device, upload.buffer, upload.memory, 0),
+                       "Binding Vulkan item-effect upload memory failed."))
+            {
+                vkDestroyBuffer(createInfo.device, upload.buffer, createInfo.allocator);
+                if (upload.memory)
+                    vkFreeMemory(createInfo.device, upload.memory, createInfo.allocator);
+                return false;
+            }
+
+            void* mapped = nullptr;
+            if (!Check(vkMapMemory(createInfo.device, upload.memory, 0, VK_WHOLE_SIZE, 0,
+                                   &mapped),
+                       "Mapping Vulkan item-effect upload memory failed."))
+            {
+                vkDestroyBuffer(createInfo.device, upload.buffer, createInfo.allocator);
+                vkFreeMemory(createInfo.device, upload.memory, createInfo.allocator);
+                return false;
+            }
+            std::memcpy(mapped, drawData.vertices.data(), static_cast<std::size_t>(vertexSize));
+            std::memcpy(static_cast<std::byte*>(mapped) + indexOffset,
+                        drawData.indices.data(), static_cast<std::size_t>(indexSize));
+            if (!coherent)
+            {
+                VkMappedMemoryRange range{VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};
+                range.memory = upload.memory;
+                range.size = VK_WHOLE_SIZE;
+                if (!Check(vkFlushMappedMemoryRanges(createInfo.device, 1, &range),
+                           "Flushing Vulkan item-effect upload memory failed."))
+                {
+                    vkUnmapMemory(createInfo.device, upload.memory);
+                    vkDestroyBuffer(createInfo.device, upload.buffer, createInfo.allocator);
+                    vkFreeMemory(createInfo.device, upload.memory, createInfo.allocator);
+                    return false;
+                }
+            }
+            vkUnmapMemory(createInfo.device, upload.memory);
+            try
+            {
+                resources.itemUploads.push_back(upload);
+            }
+            catch (...)
+            {
+                vkDestroyBuffer(createInfo.device, upload.buffer, createInfo.allocator);
+                vkFreeMemory(createInfo.device, upload.memory, createInfo.allocator);
+                throw;
+            }
+            buffer = upload.buffer;
+            return true;
+        }
+
+        bool RenderItem(const ItemEffectRequest& request,
+                        const ItemEffectDrawData& drawData)
+        {
+            if (!frameActive || frames.empty() || drawData.Empty() ||
+                request.layerCount == 0)
+                return true;
+            if (!CanCaptureTarget() || frame.drawData == nullptr)
+                return true;
+            if (frame.drawData->DisplaySize.x <= 0.0f ||
+                frame.drawData->DisplaySize.y <= 0.0f ||
+                frame.drawData->FramebufferScale.x <= 0.0f ||
+                frame.drawData->FramebufferScale.y <= 0.0f)
+                return true;
+
+            FrameResources& resources = frames[frame.frameIndex % frames.size()];
+            if (!renderPassActive || resources.targetFramebuffer == VK_NULL_HANDLE)
+            {
+                error = "Vulkan item effects require an active capturable render pass.";
+                return false;
+            }
+
+            auto* renderState = static_cast<ImGui_ImplVulkan_RenderState*>(
+                ImGui::GetPlatformIO().Renderer_RenderState);
+            if (renderState == nullptr || renderState->CommandBuffer != frame.commandBuffer ||
+                renderState->Pipeline == VK_NULL_HANDLE ||
+                renderState->PipelineLayout == VK_NULL_HANDLE)
+            {
+                error = "Vulkan item effects require active ImGui Vulkan render state.";
+                return false;
+            }
+
+            VkBuffer uploadBuffer = VK_NULL_HANDLE;
+            VkDeviceSize indexOffset = 0;
+            if (!UploadItemDrawData(resources, drawData, uploadBuffer, indexOffset))
+                return false;
+
+            vkCmdEndRenderPass(frame.commandBuffer);
+            renderPassActive = false;
+
+            VkRenderPassBeginInfo begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+            begin.renderPass = offscreenRenderPass;
+            begin.framebuffer = resources.sourceFramebuffer;
+            begin.renderArea.extent = {frame.extent.width, frame.extent.height};
+            VkClearValue clear{};
+            begin.clearValueCount = 1;
+            begin.pClearValues = &clear;
+            vkCmdBeginRenderPass(frame.commandBuffer, &begin, VK_SUBPASS_CONTENTS_INLINE);
+            SetViewport(frame.commandBuffer);
+            vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                              renderState->Pipeline);
+            const VkDeviceSize vertexOffset = 0;
+            vkCmdBindVertexBuffers(frame.commandBuffer, 0, 1, &uploadBuffer, &vertexOffset);
+            vkCmdBindIndexBuffer(frame.commandBuffer, uploadBuffer, indexOffset,
+                                 VK_INDEX_TYPE_UINT32);
+
+            const ImDrawData& imguiDrawData = *frame.drawData;
+            const float transform[] = {
+                2.0f / imguiDrawData.DisplaySize.x,
+                2.0f / imguiDrawData.DisplaySize.y,
+                -1.0f - imguiDrawData.DisplayPos.x * 2.0f / imguiDrawData.DisplaySize.x,
+                -1.0f - imguiDrawData.DisplayPos.y * 2.0f / imguiDrawData.DisplaySize.y};
+            vkCmdPushConstants(frame.commandBuffer, renderState->PipelineLayout,
+                               VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(transform), transform);
+
+            for (const ItemEffectDrawCommand& command : drawData.commands)
+            {
+                if (command.indexCount == 0 || command.textureId == ImTextureID_Invalid ||
+                    command.firstIndex > drawData.indices.size() ||
+                    command.indexCount > drawData.indices.size() - command.firstIndex)
+                    continue;
+                ImVec2 clipMin(
+                    (command.clipRect.x - imguiDrawData.DisplayPos.x) *
+                        imguiDrawData.FramebufferScale.x,
+                    (command.clipRect.y - imguiDrawData.DisplayPos.y) *
+                        imguiDrawData.FramebufferScale.y);
+                ImVec2 clipMax(
+                    (command.clipRect.z - imguiDrawData.DisplayPos.x) *
+                        imguiDrawData.FramebufferScale.x,
+                    (command.clipRect.w - imguiDrawData.DisplayPos.y) *
+                        imguiDrawData.FramebufferScale.y);
+                clipMin.x = std::max(clipMin.x, 0.0f);
+                clipMin.y = std::max(clipMin.y, 0.0f);
+                clipMax.x = std::min(clipMax.x, static_cast<float>(frame.extent.width));
+                clipMax.y = std::min(clipMax.y, static_cast<float>(frame.extent.height));
+                if (clipMax.x <= clipMin.x || clipMax.y <= clipMin.y)
+                    continue;
+
+                const VkRect2D scissor{
+                    {static_cast<std::int32_t>(clipMin.x),
+                     static_cast<std::int32_t>(clipMin.y)},
+                    {static_cast<std::uint32_t>(clipMax.x - clipMin.x),
+                     static_cast<std::uint32_t>(clipMax.y - clipMin.y)}};
+                vkCmdSetScissor(frame.commandBuffer, 0, 1, &scissor);
+                const VkDescriptorSet textureSet = (VkDescriptorSet)command.textureId;
+                vkCmdBindDescriptorSets(frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                        renderState->PipelineLayout, 0, 1, &textureSet,
+                                        0, nullptr);
+                vkCmdDrawIndexed(frame.commandBuffer, command.indexCount, 1,
+                                 command.firstIndex, 0, 0);
+            }
+            vkCmdEndRenderPass(frame.commandBuffer);
+
+            const float sigmaScaleX = std::fabs(imguiDrawData.FramebufferScale.x);
+            const float sigmaScaleY = std::fabs(imguiDrawData.FramebufferScale.y);
+            bool composited = false;
+            const std::uint32_t layerCount = std::min<std::uint32_t>(
+                request.layerCount, static_cast<std::uint32_t>(request.layers.size()));
+            for (std::uint32_t index = 0; index < layerCount; ++index)
+            {
+                const ItemEffectLayer& layer = request.layers[index];
+                if (layer.type != ItemEffectType::Shadow &&
+                    layer.type != ItemEffectType::Glow &&
+                    layer.type != ItemEffectType::Blur)
+                    continue;
+                if (renderPassActive)
+                {
+                    vkCmdEndRenderPass(frame.commandBuffer);
+                    renderPassActive = false;
+                }
+                BlurSource(resources, layer.sigma * sigmaScaleX,
+                           layer.sigma * sigmaScaleY);
+                BeginLoadPass(resources);
+                DrawCallback(itemCompositePipeline, resources.descriptorSets[2],
+                             MakeItemCompositeConstants(
+                                 layer, frame.extent, imguiDrawData.FramebufferScale));
+                composited = true;
+            }
+            if (!composited)
+                BeginLoadPass(resources);
+            resources.captureValid = false;
+            return true;
         }
 
         void Render(const EffectRequest& request)
@@ -948,7 +1245,7 @@ namespace IVUI::Vulkan
     bool EffectRenderer::PrepareFrame(const EffectRendererFrameInfo& frameInfo) noexcept
     {
         if (!impl_ || frameInfo.commandBuffer == VK_NULL_HANDLE || frameInfo.extent.width == 0 ||
-            frameInfo.extent.height == 0)
+            frameInfo.extent.height == 0 || frameInfo.frameIndex >= impl_->frames.size())
             return false;
         try
         {
@@ -963,7 +1260,8 @@ namespace IVUI::Vulkan
 
     bool EffectRenderer::BeginFrame(const EffectRendererFrameInfo& frameInfo) noexcept
     {
-        if (!impl_ || frameInfo.commandBuffer == VK_NULL_HANDLE || impl_->frames.empty())
+        if (!impl_ || frameInfo.commandBuffer == VK_NULL_HANDLE || impl_->frames.empty() ||
+            frameInfo.frameIndex >= impl_->frames.size())
             return false;
         const auto& resources = impl_->frames[frameInfo.frameIndex % impl_->frames.size()];
         if (!resources.prepared || frameInfo.extent.width != impl_->resourceExtent.width ||
@@ -1006,7 +1304,13 @@ namespace IVUI::Vulkan
 
     EffectCapabilities EffectRenderer::GetCapabilities() const noexcept
     {
-        return impl_ ? AllEffectCapabilities : EffectCapabilities::None;
+        if (!impl_)
+            return EffectCapabilities::None;
+        EffectCapabilities capabilities = AllEffectCapabilities &
+            ~EffectCapabilities::ItemSourceReplacement;
+        if (!impl_->createInfo.enableItemEffects)
+            capabilities = capabilities & ~EffectCapabilities::ItemEffects;
+        return capabilities;
     }
 
     void EffectRenderer::RenderEffect(const EffectRequest& request) noexcept
@@ -1020,6 +1324,21 @@ namespace IVUI::Vulkan
         catch (...)
         {
             impl_->error = "Unexpected Vulkan effect rendering failure.";
+        }
+    }
+
+    void EffectRenderer::RenderItemEffects(const ItemEffectRequest& request,
+                                           const ItemEffectDrawData& drawData) noexcept
+    {
+        if (!impl_)
+            return;
+        try
+        {
+            impl_->RenderItem(request, drawData);
+        }
+        catch (...)
+        {
+            impl_->error = "Unexpected Vulkan item-effect rendering failure.";
         }
     }
 }

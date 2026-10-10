@@ -478,10 +478,15 @@ namespace
         const ImVec4 accent = ImGui::ColorConvertU32ToFloat4(theme.Accent);
         renderFrame.effects.backdropBlurSigma = theme.BackdropBlurSigma;
         renderFrame.effects.renderBackground = true;
+        renderFrame.effects.background.topColor = {0.018f, 0.035f, 0.085f, 1.0f};
+        renderFrame.effects.background.bottomColor = {0.004f, 0.008f, 0.020f, 1.0f};
         renderFrame.effects.background.accent = {accent.x, accent.y, accent.z, accent.w};
-        renderFrame.effects.background.gridSize = 48.0f * theme.Scale;
-        renderFrame.effects.background.animationSpeed = 1.15f;
-        renderFrame.effects.background.intensity = 1.3f;
+        renderFrame.effects.background.secondary = {0.95f, 0.18f, 0.48f, 1.0f};
+        renderFrame.effects.background.gridSize = 72.0f;
+        renderFrame.effects.background.gridStrength = 0.34f;
+        renderFrame.effects.background.vignette = 0.38f;
+        renderFrame.effects.background.animationSpeed = 0.42f;
+        renderFrame.effects.background.intensity = 1.15f;
         renderFrame.effects.allowTargetCapture = true;
         renderFrame.effects.renderBloom = theme.PanelGlow > 0.001f;
         renderFrame.effects.bloom.bounds = {
@@ -608,7 +613,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
     const std::string executableDirectory = ExecutableDirectory();
     auto effects = IVUI::Vulkan::EffectRenderer::Create({
         g_physicalDevice, g_device, g_windowData.SurfaceFormat.format,
-        g_windowData.RenderPass, 0, g_windowData.ImageCount, nullptr}, &error);
+        g_windowData.RenderPass, 0, g_windowData.ImageCount, nullptr, true}, &error);
     if (!effects)
     {
         ::MessageBoxA(hwnd, error.c_str(),
@@ -654,6 +659,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
         ::UnregisterClassW(windowClass.lpszClassName, windowClass.hInstance);
         return 1;
     }
+    Demo::SetAssetDirectory(executableDirectory.c_str());
 
     g_windowData.ClearValue.color.float32[0] = 0.008f;
     g_windowData.ClearValue.color.float32[1] = 0.012f;

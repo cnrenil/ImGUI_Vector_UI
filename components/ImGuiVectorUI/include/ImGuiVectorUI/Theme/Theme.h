@@ -6,9 +6,38 @@
 #pragma once
 
 #include "imgui.h"
+#include "ImGuiVectorUI/Core/Motion.h"
+#include "ImGuiVectorUI/Drawing/Effects.h"
+#include "ImGuiVectorUI/Widgets/Notification.h"
+
+#include <array>
+#include <cstddef>
 
 namespace IVUI
 {
+    enum class ElementRole : std::size_t
+    {
+        Default,
+        Panel,
+        Button,
+        ProminentButton,
+        Toggle,
+        Slider,
+        Input,
+        Text,
+        Notification,
+        Chart,
+        ColorPicker,
+        ModelViewer,
+        Count
+    };
+
+    struct ElementVisualStyle
+    {
+        ItemEffectRequest effects{};
+        ItemMotionStyle motion{};
+    };
+
     struct Theme
     {
         /// Semantic colors (ImU32, packed RGBA).
@@ -36,6 +65,10 @@ namespace IVUI
 
         ImU32 HoverTint;     ///<  additive tint drawn on hovered rows/controls
         ImU32 GlassTint;     ///<  independent tint mixed into the blurred panel backdrop
+        ImU32 Success = IM_COL32(64, 200, 120, 255);
+        ImU32 Warning = IM_COL32(240, 190, 70, 255);
+        ImU32 Error = IM_COL32(235, 90, 90, 255);
+        ImU32 Info = IM_COL32(112, 183, 255, 255);
 
         /// Shape scale.
         float RoundingPanel;
@@ -106,7 +139,38 @@ namespace IVUI
         int   Selection;         ///<  SelectionStyle: how selected rows/sections read
         int   HudLayout;         ///<  HudLayout: active-feature HUD composition
         bool  FillGradient;      ///<  classic-ImGui vertical gradient control fills
-        bool  DynamicIslandToast;///<  iOS-style top-center capsule toasts (vs bottom-right)
+
+        /// Notification composition. Individual notifications may override every field.
+        NotificationTheme Notifications{};
+
+        /// Per-element defaults. Widgets may override either value per instance.
+        std::array<ElementVisualStyle, static_cast<std::size_t>(ElementRole::Count)> Elements{};
+
+        const ElementVisualStyle& ForElement(ElementRole role) const noexcept
+        {
+            const std::size_t index = static_cast<std::size_t>(role);
+            return Elements[index < Elements.size() ? index : 0];
+        }
+
+        ElementVisualStyle& ForElement(ElementRole role) noexcept
+        {
+            const std::size_t index = static_cast<std::size_t>(role);
+            return Elements[index < Elements.size() ? index : 0];
+        }
+
+        ElementVisualStyle ResolveElement(ElementRole role) const noexcept
+        {
+            ElementVisualStyle resolved = ForElement(role);
+            resolved.motion.offset.x *= Scale;
+            resolved.motion.offset.y *= Scale;
+            for (std::uint32_t index = 0; index < resolved.effects.layerCount; ++index)
+            {
+                resolved.effects.layers[index].offset.x *= Scale;
+                resolved.effects.layers[index].offset.y *= Scale;
+                resolved.effects.layers[index].sigma *= Scale;
+            }
+            return resolved;
+        }
 
         /// Global multiplier (supersedes MYGui's SCALE() macro).
         float Scale;
@@ -120,6 +184,15 @@ namespace IVUI
 
     enum class Preset { Peach, Cyan, Violet, Emerald, COUNT };
     enum class Style { MaterialYou, Vape, Neverlose, ImGuiClassic, iOSGlass, COUNT };
+
+    enum class ColorScheme { Dark, Light };
+    enum class Density { Comfortable, Compact };
+
+    /** Standalone theme factory; no UI or ImGui context is required. */
+    Theme MakeTheme(ColorScheme scheme = ColorScheme::Dark,
+                    Density density = Density::Comfortable);
+    /** Map semantic tokens onto native ImGui controls without cumulative scaling. */
+    void ApplyImGuiTheme(const Theme& theme, ImGuiStyle& style);
 
 #ifdef IVUI_INTERNAL_API
     /** @name Built-in color presets */
@@ -141,9 +214,6 @@ namespace IVUI
     Theme       GetStyle(Style s);
     /** @return The display name for @p s. */
     const char* StyleName(Style s);
-    /** @return True when @p s uses the top-center Dynamic Island toast layout. */
-    bool        StyleIsDynamicIsland(Style s);
-
     /** @brief Recomputes accent-derived theme tokens.
      *  @param t Theme to update.
      *  @param accent Base packed RGBA accent color.

@@ -29,6 +29,7 @@ namespace IVUI
         float currentValue = 0.0f; ///<  slider internal value (segments/labeled)
         float currentPercent = 0.0f;
         float lastTarget = -1.0f;
+        int transitionKey = 0;
 
         bool  hidden = false;      ///<  collapsed / closed
         bool  capturing = false;   ///<  hotkey capture in progress

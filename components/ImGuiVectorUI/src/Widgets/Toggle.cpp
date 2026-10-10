@@ -23,7 +23,7 @@ namespace IVUI
         const ImVec2 bg = ImVec2(th.ToggleW * S, th.ToggleH * S);
 
         a.direction = *v ? 1.0f : -1.0f;
-        a.t = ImClamp(a.t + DeltaTime() * 8.0f * a.direction, 0.0f, 1.0f);
+        a.t = AdvanceProgress(a.t, a.direction > 0.0f ? 1.0f : 0.0f, 8.0f);
 
         const ImVec2 labelSize = CalcTextScaled(label, th.FontSizeLabel);
         AddTextScaled(draw, ImVec2(cursor.x, cursor.y + (bg.y - labelSize.y) * 0.5f), th.Text, label, th.FontSizeLabel);

@@ -101,14 +101,11 @@ void main()
     material += rimColor * edge * (0.22 + lightFacing * 0.78) *
                 clamp(constants.data[3].w, 0.0, 1.0);
 
-    float outside = max(sdf, 0.0);
-    float glow = exp(-outside / max(constants.data[6].y, 0.5)) *
-                 clamp(constants.data[6].x, 0.0, 1.0) * (1.0 - mask);
-    float shadow = exp(-outside / max(constants.data[6].w, 0.5)) *
-                   clamp(constants.data[6].z, 0.0, 1.0) * (1.0 - mask);
+    // Keep the material inside the rounded SDF. Outside layers on this
+    // bounded fullscreen quad become square corner remnants.
     float materialAlpha = mask * opacity;
-    float alpha = clamp(materialAlpha + glow + shadow, 0.0, 1.0);
+    float alpha = materialAlpha;
     if (alpha <= 0.001)
         discard;
-    outColor = vec4(material * materialAlpha + accent * glow, alpha);
+    outColor = vec4(material * materialAlpha, alpha);
 }

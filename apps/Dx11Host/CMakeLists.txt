@@ -27,4 +27,10 @@ add_custom_command(TARGET ImGuiVectorUIDemoDX11 POST_BUILD
         $<TARGET_FILE_DIR:ImGuiVectorUIDemoDX11>/unifont.otf
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         ${CMAKE_CURRENT_SOURCE_DIR}/../DemoMenu/assets/UNIFONT-LICENSE.txt
-        $<TARGET_FILE_DIR:ImGuiVectorUIDemoDX11>/UNIFONT-LICENSE.txt)
+        $<TARGET_FILE_DIR:ImGuiVectorUIDemoDX11>/UNIFONT-LICENSE.txt
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_CURRENT_SOURCE_DIR}/../DemoMenu/assets/CesiumMilkTruck.glb
+        $<TARGET_FILE_DIR:ImGuiVectorUIDemoDX11>/CesiumMilkTruck.glb
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_CURRENT_SOURCE_DIR}/../DemoMenu/assets/CESIUM-MILK-TRUCK-LICENSE.txt
+        $<TARGET_FILE_DIR:ImGuiVectorUIDemoDX11>/CESIUM-MILK-TRUCK-LICENSE.txt)

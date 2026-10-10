@@ -29,6 +29,7 @@ namespace IVUI::DX11
         ID3D11Texture2D* backdrop = nullptr;
         bool renderBackground = false;
         BackgroundShaderParams background{};
+        const ImDrawData* drawData = nullptr;
     };
 
     class EffectRenderer final : public IEffectRenderer
@@ -50,6 +51,8 @@ namespace IVUI::DX11
 
         EffectCapabilities GetCapabilities() const noexcept override;
         void RenderEffect(const EffectRequest& request) noexcept override;
+        void RenderItemEffects(const ItemEffectRequest& request,
+                               const ItemEffectDrawData& drawData) noexcept override;
 
     private:
         struct Impl;

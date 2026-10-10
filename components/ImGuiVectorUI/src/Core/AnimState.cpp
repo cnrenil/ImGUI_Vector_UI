@@ -34,21 +34,20 @@ namespace IVUI
 
     void AnimRegistry::GarbageCollect(unsigned frame, unsigned maxAge)
     {
-        // Do not mutate ImGuiStorage while enumerating it.
-        ImVector<ImGuiID> dead;
+        // Compact sorted keys; tombstones otherwise grow with transient IDs.
+        int live = 0;
         for (int i = 0; i < store.Data.Size; ++i)
         {
             AnimSlot* slot = (AnimSlot*)store.Data[i].val_p;
             if (slot && (frame - slot->lastFrame) > maxAge)
-                dead.push_back(store.Data[i].key);
-        }
-        for (int i = 0; i < dead.Size; ++i)
-        {
-            AnimSlot* slot = (AnimSlot*)store.GetVoidPtr(dead[i]);
-            if (slot)
+            {
                 FreeSlot(slot);
-            store.SetVoidPtr(dead[i], nullptr);
+                slot = nullptr;
+            }
+            if (slot)
+                store.Data[live++] = store.Data[i];
         }
+        store.Data.resize(live);
     }
 
     void AnimRegistry::Clear()

@@ -22,11 +22,14 @@ namespace IVUI::Vulkan
         std::uint32_t subpass = 0;
         std::uint32_t framesInFlight = 2;
         const VkAllocationCallbacks* allocator = nullptr;
+        /** Advertises item effects. Frames using them must enable target capture. */
+        bool enableItemEffects = false;
     };
 
     struct EffectRendererFrameInfo
     {
         VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+        const ImDrawData* drawData = nullptr;
         VkImage targetImage = VK_NULL_HANDLE;
         VkImageView targetView = VK_NULL_HANDLE;
         VkImageLayout targetLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -34,13 +37,15 @@ namespace IVUI::Vulkan
         VkImageView backdropView = VK_NULL_HANDLE;
         VkImageLayout backdropLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         EffectExtent extent{};
-        std::uint32_t frameIndex = 0;
+        /** Completed frame-resource slot. The host must wait for its fence before reuse. */
+        std::uint32_t frameIndex = UINT32_MAX;
         float timeSeconds = 0.0f;
         float backdropBlurSigma = 8.0f;
         bool renderBackground = false;
         BackgroundShaderParams background{};
         /** Enables draw-depth target capture. The active render pass must use a
-         *  single-sampled color attachment in subpass 0 and finish in PRESENT.
+         *  single-sampled color attachment in subpass 0, have no depth/resolve
+         *  attachment, be compatible with a one-color load pass, and finish in PRESENT.
          */
         bool allowTargetCapture = false;
         bool renderBloom = false;
@@ -69,6 +74,8 @@ namespace IVUI::Vulkan
 
         EffectCapabilities GetCapabilities() const noexcept override;
         void RenderEffect(const EffectRequest& request) noexcept override;
+        void RenderItemEffects(const ItemEffectRequest& request,
+                               const ItemEffectDrawData& drawData) noexcept override;
 
     private:
         struct Impl;

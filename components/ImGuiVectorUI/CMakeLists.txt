@@ -10,11 +10,38 @@ option(IVUI_BUILD_DX12_EFFECTS "Build the optional DirectX 12 effects backend" O
 option(IVUI_BUILD_DX11_EFFECTS "Build the optional DirectX 11 effects backend" OFF)
 option(IVUI_BUILD_VULKAN_EFFECTS "Build the optional Vulkan effects backend" OFF)
 option(IVUI_BUILD_WIN32_PLATFORM "Build the Win32 platform adapter" OFF)
+option(IVUI_BUILD_CHARTS "Build the optional ImPlot charts module" OFF)
+option(IVUI_BUILD_GLTF "Build the optional glTF loading module" OFF)
+option(IVUI_BUILD_MODEL_VIEWER "Build the optional model viewer module" OFF)
 option(IVUI_INSTALL "Generate install and package export rules" ${PROJECT_IS_TOP_LEVEL})
 option(IVUI_USE_BUNDLED_IMGUI "Build ImGui from IVUI_IMGUI_SOURCE_DIR when needed" ON)
 
 set(IVUI_IMGUI_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui" CACHE PATH
     "Dear ImGui source tree used when no imgui target is supplied")
+set(IVUI_DEFAULT_IMPLOT_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/implot")
+if(NOT EXISTS "${IVUI_DEFAULT_IMPLOT_SOURCE_DIR}/implot.h")
+    set(IVUI_DEFAULT_IMPLOT_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/implot")
+endif()
+set(IVUI_IMPLOT_SOURCE_DIR "${IVUI_DEFAULT_IMPLOT_SOURCE_DIR}" CACHE PATH
+    "ImPlot source tree used by the built-in charts module")
+set(IVUI_DEFAULT_CGLTF_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/cgltf")
+if(NOT EXISTS "${IVUI_DEFAULT_CGLTF_SOURCE_DIR}/cgltf.h")
+    set(IVUI_DEFAULT_CGLTF_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/cgltf")
+endif()
+set(IVUI_CGLTF_SOURCE_DIR "${IVUI_DEFAULT_CGLTF_SOURCE_DIR}" CACHE PATH
+    "cgltf header directory used by the built-in glTF modules")
+set(IVUI_DEFAULT_STB_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/stb")
+if(NOT EXISTS "${IVUI_DEFAULT_STB_SOURCE_DIR}/stb_image.h")
+    set(IVUI_DEFAULT_STB_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb")
+endif()
+set(IVUI_STB_SOURCE_DIR "${IVUI_DEFAULT_STB_SOURCE_DIR}" CACHE PATH
+    "stb source tree used by the built-in glTF image loader")
+set(IVUI_DEFAULT_GLM_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/glm")
+if(NOT EXISTS "${IVUI_DEFAULT_GLM_SOURCE_DIR}/glm/glm.hpp")
+    set(IVUI_DEFAULT_GLM_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/glm")
+endif()
+set(IVUI_GLM_SOURCE_DIR "${IVUI_DEFAULT_GLM_SOURCE_DIR}" CACHE PATH
+    "GLM source tree used privately by the model viewer")
 
 function(ivui_configure_target target)
     target_compile_features(${target} PUBLIC cxx_std_20)
@@ -115,6 +142,7 @@ set(IVUI_CORE_SOURCES
     src/Core/Context.cpp
     src/Core/DragDrop.cpp
     src/Core/Easing.cpp
+    src/Core/Element.cpp
     src/Core/Id.cpp
     src/Core/Motion.cpp
     src/Drawing/DrawText.cpp
@@ -131,7 +159,10 @@ set(IVUI_CORE_SOURCES
     src/Layout/StatusChips.cpp
     src/Layout/Table.cpp
     src/Layout/Tabs.cpp
+    src/Layout/Workbench.cpp
+    src/Layout/Content.cpp
     src/Theme/Theme.cpp
+    src/Theme/Design.cpp
     src/Widgets/Basic.cpp
     src/Widgets/Button.cpp
     src/Widgets/ColorPicker.cpp
@@ -141,7 +172,8 @@ set(IVUI_CORE_SOURCES
     src/Widgets/Popup.cpp
     src/Widgets/Slider.cpp
     src/Widgets/TextInput.cpp
-    src/Widgets/Toast.cpp
+    src/Widgets/Notification.cpp
+    src/Widgets/AnimatedText.cpp
     src/Widgets/Toggle.cpp)
 
 add_library(ImGuiVectorUI STATIC ${IVUI_CORE_SOURCES})
@@ -155,6 +187,75 @@ target_include_directories(ImGuiVectorUI
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+if(IVUI_BUILD_CHARTS)
+    if(NOT EXISTS "${IVUI_IMPLOT_SOURCE_DIR}/implot.h" OR
+       NOT EXISTS "${IVUI_IMPLOT_SOURCE_DIR}/implot.cpp" OR
+       NOT EXISTS "${IVUI_IMPLOT_SOURCE_DIR}/implot_items.cpp")
+        message(FATAL_ERROR
+            "ImGuiVectorUICharts requires implot.h, implot.cpp and implot_items.cpp at "
+            "IVUI_IMPLOT_SOURCE_DIR='${IVUI_IMPLOT_SOURCE_DIR}'.")
+    endif()
+    add_library(ImGuiVectorUICharts STATIC
+        src/Optional/Charts.cpp
+        ${IVUI_IMPLOT_SOURCE_DIR}/implot.cpp
+        ${IVUI_IMPLOT_SOURCE_DIR}/implot_items.cpp)
+    add_library(ImGuiVectorUI::Charts ALIAS ImGuiVectorUICharts)
+    set_target_properties(ImGuiVectorUICharts PROPERTIES EXPORT_NAME Charts)
+    ivui_configure_target(ImGuiVectorUICharts)
+    target_compile_definitions(ImGuiVectorUICharts PRIVATE IMGUI_DEFINE_MATH_OPERATORS)
+    target_link_libraries(ImGuiVectorUICharts PUBLIC ImGuiVectorUI)
+    target_include_directories(ImGuiVectorUICharts
+        PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+               $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+        PRIVATE ${IVUI_IMPLOT_SOURCE_DIR})
+endif()
+
+if(IVUI_BUILD_GLTF OR IVUI_BUILD_MODEL_VIEWER)
+  if(NOT EXISTS "${IVUI_CGLTF_SOURCE_DIR}/cgltf.h")
+    message(FATAL_ERROR
+        "ImGuiVectorUIGltf requires cgltf.h at "
+        "IVUI_CGLTF_SOURCE_DIR='${IVUI_CGLTF_SOURCE_DIR}'.")
+  endif()
+  if(NOT EXISTS "${IVUI_STB_SOURCE_DIR}/stb_image.h")
+    message(FATAL_ERROR
+        "ImGuiVectorUIGltf requires stb_image.h at "
+        "IVUI_STB_SOURCE_DIR='${IVUI_STB_SOURCE_DIR}'.")
+  endif()
+endif()
+if(IVUI_BUILD_MODEL_VIEWER AND NOT EXISTS "${IVUI_GLM_SOURCE_DIR}/glm/glm.hpp")
+    message(FATAL_ERROR
+        "ImGuiVectorUIModelViewer requires glm/glm.hpp at "
+        "IVUI_GLM_SOURCE_DIR='${IVUI_GLM_SOURCE_DIR}'.")
+endif()
+if(IVUI_BUILD_GLTF OR IVUI_BUILD_MODEL_VIEWER)
+add_library(ImGuiVectorUIGltf STATIC
+    src/Optional/Gltf.cpp
+    src/Optional/CgltfImplementation.cpp
+    src/Optional/StbImageImplementation.cpp)
+add_library(ImGuiVectorUI::Gltf ALIAS ImGuiVectorUIGltf)
+set_target_properties(ImGuiVectorUIGltf PROPERTIES EXPORT_NAME Gltf)
+ivui_configure_target(ImGuiVectorUIGltf)
+target_link_libraries(ImGuiVectorUIGltf PUBLIC ImGuiVectorUI)
+target_include_directories(ImGuiVectorUIGltf
+    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+           $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    PRIVATE ${IVUI_CGLTF_SOURCE_DIR} ${IVUI_STB_SOURCE_DIR})
+endif()
+
+if(IVUI_BUILD_MODEL_VIEWER)
+add_library(ImGuiVectorUIModelViewer STATIC src/Optional/ModelViewer.cpp)
+add_library(ImGuiVectorUI::ModelViewer ALIAS ImGuiVectorUIModelViewer)
+set_target_properties(ImGuiVectorUIModelViewer PROPERTIES EXPORT_NAME ModelViewer)
+ivui_configure_target(ImGuiVectorUIModelViewer)
+target_compile_definitions(ImGuiVectorUIModelViewer PRIVATE
+    IMGUI_DEFINE_MATH_OPERATORS IVUI_INTERNAL_API)
+target_link_libraries(ImGuiVectorUIModelViewer PUBLIC ImGuiVectorUIGltf)
+target_include_directories(ImGuiVectorUIModelViewer
+    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+           $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    PRIVATE ${IVUI_GLM_SOURCE_DIR})
+endif()
 
 if(TARGET ImGuiVectorUIDirectXShaders)
     target_compile_definitions(ImGuiVectorUI PRIVATE IVUI_HAS_DIRECTX_SHADERS)
@@ -270,7 +371,8 @@ if(IVUI_BUILD_VULKAN_EFFECTS)
     target_link_libraries(ImGuiVectorUIEffectsVulkan PUBLIC ImGuiVectorUI Vulkan::Vulkan)
     target_include_directories(ImGuiVectorUIEffectsVulkan PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+        PRIVATE ${IVUI_IMGUI_SOURCE_DIR}/backends)
 
     if(NOT Vulkan_GLSLANG_VALIDATOR_EXECUTABLE)
         find_program(Vulkan_GLSLANG_VALIDATOR_EXECUTABLE glslangValidator REQUIRED)
@@ -309,6 +411,45 @@ if(IVUI_BUILD_VULKAN_EFFECTS)
         ImGuiVectorUIEffectsVulkan Vulkan::Vulkan)
 endif()
 
+if(IVUI_BUILD_DX11_EFFECTS AND IVUI_BUILD_MODEL_VIEWER)
+    add_library(ImGuiVectorUIModelViewerDX11 STATIC src/Backends/ModelViewerDX11.cpp)
+    add_library(ImGuiVectorUI::ModelViewerDX11 ALIAS ImGuiVectorUIModelViewerDX11)
+    set_target_properties(ImGuiVectorUIModelViewerDX11 PROPERTIES
+        EXPORT_NAME ModelViewerDX11)
+    ivui_configure_target(ImGuiVectorUIModelViewerDX11)
+    target_include_directories(ImGuiVectorUIModelViewerDX11 PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+    target_link_libraries(ImGuiVectorUIModelViewerDX11 PUBLIC
+        ImGuiVectorUIModelViewer PRIVATE d3d11)
+endif()
+
+if(IVUI_BUILD_DX12_EFFECTS AND IVUI_BUILD_MODEL_VIEWER)
+    add_library(ImGuiVectorUIModelViewerDX12 STATIC src/Backends/ModelViewerDX12.cpp)
+    add_library(ImGuiVectorUI::ModelViewerDX12 ALIAS ImGuiVectorUIModelViewerDX12)
+    set_target_properties(ImGuiVectorUIModelViewerDX12 PROPERTIES
+        EXPORT_NAME ModelViewerDX12)
+    ivui_configure_target(ImGuiVectorUIModelViewerDX12)
+    target_include_directories(ImGuiVectorUIModelViewerDX12 PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+    target_link_libraries(ImGuiVectorUIModelViewerDX12 PUBLIC
+        ImGuiVectorUIModelViewer PRIVATE d3d12 dxgi)
+endif()
+
+if(IVUI_BUILD_VULKAN_EFFECTS AND IVUI_BUILD_MODEL_VIEWER)
+    add_library(ImGuiVectorUIModelViewerVulkan STATIC src/Backends/ModelViewerVulkan.cpp)
+    add_library(ImGuiVectorUI::ModelViewerVulkan ALIAS ImGuiVectorUIModelViewerVulkan)
+    set_target_properties(ImGuiVectorUIModelViewerVulkan PROPERTIES
+        EXPORT_NAME ModelViewerVulkan)
+    ivui_configure_target(ImGuiVectorUIModelViewerVulkan)
+    target_include_directories(ImGuiVectorUIModelViewerVulkan PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+    target_link_libraries(ImGuiVectorUIModelViewerVulkan PUBLIC
+        ImGuiVectorUIModelViewer Vulkan::Vulkan)
+endif()
+
 if(IVUI_BUILD_TESTS)
     if(PROJECT_IS_TOP_LEVEL)
         enable_testing()
@@ -318,6 +459,27 @@ if(IVUI_BUILD_TESTS)
     ivui_configure_target(ImGuiVectorUICoreTests)
     target_link_libraries(ImGuiVectorUICoreTests PRIVATE ImGuiVectorUI)
     add_test(NAME ImGuiVectorUICoreTests COMMAND ImGuiVectorUICoreTests)
+
+    if(TARGET ImGuiVectorUICharts)
+        add_executable(ImGuiVectorUIChartsTests tests/ChartsTests.cpp)
+        ivui_configure_target(ImGuiVectorUIChartsTests)
+        target_link_libraries(ImGuiVectorUIChartsTests PRIVATE ImGuiVectorUICharts)
+        add_test(NAME ImGuiVectorUIChartsTests COMMAND ImGuiVectorUIChartsTests)
+    endif()
+
+    if(TARGET ImGuiVectorUIGltf)
+        add_executable(ImGuiVectorUIGltfTests tests/GltfTests.cpp)
+        ivui_configure_target(ImGuiVectorUIGltfTests)
+        target_link_libraries(ImGuiVectorUIGltfTests PRIVATE ImGuiVectorUIGltf)
+        add_test(NAME ImGuiVectorUIGltfTests COMMAND ImGuiVectorUIGltfTests)
+    endif()
+
+    if(TARGET ImGuiVectorUIModelViewer)
+        add_executable(ImGuiVectorUIModelViewerTests tests/ModelViewerTests.cpp)
+        ivui_configure_target(ImGuiVectorUIModelViewerTests)
+        target_link_libraries(ImGuiVectorUIModelViewerTests PRIVATE ImGuiVectorUIModelViewer)
+        add_test(NAME ImGuiVectorUIModelViewerTests COMMAND ImGuiVectorUIModelViewerTests)
+    endif()
 
     add_executable(ImGuiVectorUIEffectsProtocolTests tests/EffectsProtocolTests.cpp)
     ivui_configure_target(ImGuiVectorUIEffectsProtocolTests)
@@ -354,7 +516,10 @@ if(IVUI_INSTALL)
     if(IVUI_BUNDLED_IMGUI)
         list(APPEND IVUI_INSTALL_TARGETS imgui)
     endif()
-    foreach(target ImGuiVectorUIEffectsDX12 ImGuiVectorUIEffectsDX11
+    foreach(target ImGuiVectorUICharts ImGuiVectorUIGltf ImGuiVectorUIModelViewer
+                   ImGuiVectorUIModelViewerDX11 ImGuiVectorUIModelViewerDX12
+                   ImGuiVectorUIModelViewerVulkan
+                   ImGuiVectorUIEffectsDX12 ImGuiVectorUIEffectsDX11
                    ImGuiVectorUIEffectsVulkan ImGuiVectorUIPlatformWin32
                    ImGuiVectorUIRendererDX11 ImGuiVectorUIRendererDX12
                    ImGuiVectorUIRendererVulkan)
@@ -373,14 +538,31 @@ if(IVUI_INSTALL)
         include/ImGuiVectorUI/Backends/ShaderLibrary.h
         include/ImGuiVectorUI/Core/Types.h
         include/ImGuiVectorUI/Core/Easing.h
+        include/ImGuiVectorUI/Core/Motion.h
+        include/ImGuiVectorUI/Core/Element.h
         include/ImGuiVectorUI/Drawing/Effects.h
         include/ImGuiVectorUI/Drawing/Icons.h
         include/ImGuiVectorUI/Layout/Flex.h
         include/ImGuiVectorUI/Layout/Panel.h
         include/ImGuiVectorUI/Layout/StatusChips.h
+        include/ImGuiVectorUI/Layout/Workbench.h
+        include/ImGuiVectorUI/Layout/Content.h
         include/ImGuiVectorUI/Theme/Theme.h
+        include/ImGuiVectorUI/Theme/Design.h
+        include/ImGuiVectorUI/Widgets/Button.h
+        include/ImGuiVectorUI/Widgets/ColorPicker.h
         include/ImGuiVectorUI/Widgets/Keybind.h
-        include/ImGuiVectorUI/Widgets/Toast.h)
+        include/ImGuiVectorUI/Widgets/Notification.h
+        include/ImGuiVectorUI/Widgets/AnimatedText.h)
+    if(TARGET ImGuiVectorUICharts)
+        list(APPEND IVUI_PUBLIC_HEADERS include/ImGuiVectorUI/Optional/Charts.h)
+    endif()
+    if(TARGET ImGuiVectorUIGltf)
+        list(APPEND IVUI_PUBLIC_HEADERS include/ImGuiVectorUI/Optional/Gltf.h)
+    endif()
+    if(TARGET ImGuiVectorUIModelViewer)
+        list(APPEND IVUI_PUBLIC_HEADERS include/ImGuiVectorUI/Optional/ModelViewer.h)
+    endif()
     foreach(header IN LISTS IVUI_PUBLIC_HEADERS)
         get_filename_component(header_directory "${header}" DIRECTORY)
         file(RELATIVE_PATH install_directory "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/${header_directory}")
@@ -404,6 +586,18 @@ if(IVUI_INSTALL)
     if(TARGET ImGuiVectorUIEffectsVulkan)
         install(FILES include/ImGuiVectorUI/Backends/EffectsVulkan.h
                       include/ImGuiVectorUI/Backends/RendererVulkan.h
+            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/ImGuiVectorUI/Backends)
+    endif()
+    if(TARGET ImGuiVectorUIModelViewerDX11)
+        install(FILES include/ImGuiVectorUI/Backends/ModelViewerDX11.h
+            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/ImGuiVectorUI/Backends)
+    endif()
+    if(TARGET ImGuiVectorUIModelViewerDX12)
+        install(FILES include/ImGuiVectorUI/Backends/ModelViewerDX12.h
+            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/ImGuiVectorUI/Backends)
+    endif()
+    if(TARGET ImGuiVectorUIModelViewerVulkan)
+        install(FILES include/ImGuiVectorUI/Backends/ModelViewerVulkan.h
             DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/ImGuiVectorUI/Backends)
     endif()
     if(IVUI_BUNDLED_IMGUI)

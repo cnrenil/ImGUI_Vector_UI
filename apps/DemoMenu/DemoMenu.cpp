@@ -1,5 +1,6 @@
 /** @file DemoMenu.cpp @brief Backend-neutral interactive ImGuiVectorUI demo menu. */
 #include "DemoMenu.h"
+#include "LayoutGallery.h"
 
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -9,18 +10,26 @@
 #include "ImGuiVectorUI/Drawing/DrawText.h"
 #include "ImGuiVectorUI/Drawing/Primitives.h"
 #include "ImGuiVectorUI/Drawing/Tooltip.h"
+#include "ImGuiVectorUI/Optional/Charts.h"
+#include "ImGuiVectorUI/Optional/ModelViewer.h"
 
+#include <memory>
 #include <vector>
 #include <string>
 #include <functional>
 #include <algorithm>
 #include <cstring>
 #include <cstdio>
+#include <cmath>
 
 namespace Demo
 {
     static IVUI::UI* g_ui = nullptr;
-    static int   g_tab = 0;
+    static int   g_tab = 6;
+    static LayoutGallery g_layoutGallery;
+    static int g_density = 0;
+    static bool g_reducedMotion = false;
+    static float g_motionSpeed = 1.0f;
     static float g_menuVis = 0.0f;
 
     static bool  g_aimEnabled = true;
@@ -39,7 +48,7 @@ namespace Demo
     static float g_speedMult = 1.5f;
 
     static int   g_quality = 1;
-    static bool  g_nightMode = false, g_statusHudEnabled = true;
+    static bool  g_nightMode = false, g_statusHudEnabled = false;
     static float g_bloom = 1.0f;
     static float g_bloomThreshold = 0.08f;
     static float g_bloomSaturation = 0.04f;
@@ -49,9 +58,24 @@ namespace Demo
     static float g_scrimAlpha = 0.32f;
 
     static int    g_menuKey = ImGuiKey_Insert;
-    static int    g_style = 0;                    // IVUI::Style (Material You / VAPE / Neverlose / ImGui / iOS)
+    static int    g_style = 5;
     static float  g_scale = 1.0f, g_roundMul = 1.0f;
     static float  g_glowMul = 1.0f, g_translucencyMul = 1.0f; // free-adjust multipliers
+    static bool   g_motionPreview = true;
+    static bool   g_effectMotionOpen = true, g_effectItemOpen = true;
+    static bool   g_effectTextOpen = true, g_effectNotificationOpen = true;
+    static bool   g_effectComponentsOpen = true;
+    static bool   g_effectChartsOpen = true, g_effectModelViewerOpen = true;
+    static std::string g_assetDirectory;
+    static std::unique_ptr<IVUI::ChartsContext> g_charts;
+    static const double g_chartPrimary[] = { 0.18, 0.26, 0.31, 0.48, 0.42, 0.66, 0.71, 0.84, 0.78, 0.96 };
+    static const double g_chartSecondary[] = { 0.64, 0.58, 0.69, 0.55, 0.73, 0.67, 0.82, 0.76, 0.91, 0.86 };
+    static double g_chartStream[32]{};
+    static IVUI::GltfScene g_previewScene;
+    static IVUI::ModelViewerState g_modelViewerState;
+    static bool g_previewSceneReady = false;
+    static bool g_previewSceneAttempted = false;
+    static std::string g_previewSceneError;
     static ImVec4 g_accent = ImVec4(1.0f, 180.0f / 255.0f, 169.0f / 255.0f, 1.0f);
     static ImVec4 g_glassTint = ImVec4(0.11f, 0.12f, 0.16f, 1.0f);
     static float  g_glassTintStrength = 0.16f, g_glassOpacity = 0.82f;
@@ -62,6 +86,42 @@ namespace Demo
     static float  g_glassLensFalloff = 6.9f, g_glassLensBias = 0.7f, g_glassLensPower = 1.0f, g_glassNoise = 0.0f;
     static bool   g_cfgKeybinds = true, g_streamproof = false;
     static IVUI::Keybind g_kbAim{ ImGuiKey_C }, g_kbEsp{ ImGuiKey_E }, g_kbPanic{ ImGuiKey_Delete };
+
+    static void ApplyNotificationAction(IVUI::NotificationHandle, void*)
+    {
+        g_weaponMode = (g_weaponMode + 1) % 3;
+    }
+
+    void SetAssetDirectory(const char* directory)
+    {
+        g_assetDirectory = directory ? directory : "";
+        g_previewScene = {};
+        g_previewSceneReady = false;
+        g_previewSceneAttempted = false;
+        g_previewSceneError.clear();
+    }
+
+    static bool EnsurePreviewScene()
+    {
+        if (g_previewSceneReady)
+            return true;
+        if (g_previewSceneAttempted)
+            return false;
+
+        g_previewSceneAttempted = true;
+        std::string path = g_assetDirectory;
+        if (!path.empty() && path.back() != '\\' && path.back() != '/')
+            path.push_back('\\');
+        path += "CesiumMilkTruck.glb";
+        if (!IVUI::LoadGltf(path.c_str(), g_previewScene, &g_previewSceneError))
+        {
+            if (g_previewSceneError.empty())
+                g_previewSceneError = "Unable to load the sample model.";
+            return false;
+        }
+        g_previewSceneReady = true;
+        return true;
+    }
 
     struct Feature { std::string id, category, group, name; std::function<void(const char*)> draw; };
     struct Category { std::string id, name; IVUI::IconType icon; };
@@ -149,7 +209,7 @@ namespace Demo
         add("weapon", "", "mode", "Fire Mode", [](const char* l) { g_ui->widgets().Combo(l, &g_weaponMode, { "Legit", "Rage", "Hybrid" }); });
         add("weapon", "", "firerate", "Fire Rate", [](const char* l) { g_ui->widgets().SliderSegments(l, &g_fireRate, 5, "%d"); });
         add("weapon", "", "norecoil", "No Recoil", [](const char* l) { g_ui->widgets().Toggle(l, &g_noRecoil); });
-        add("weapon", "", "apply", "Apply Loadout", [](const char* l) { if (g_ui->widgets().Button(l, ImVec2(0, 0), true)) g_weaponMode = (g_weaponMode + 1) % 3; });
+        add("weapon", "", "apply", "Apply Loadout", [](const char* l) { if (g_ui->widgets().Button(l, {.prominent = true})) g_weaponMode = (g_weaponMode + 1) % 3; });
 
         add("player", "", "god", "God Mode", [](const char* l) { g_ui->widgets().Toggle(l, &g_godmode); });
         add("player", "", "ammo", "Infinite Ammo", [](const char* l) { g_ui->widgets().Toggle(l, &g_infAmmo); });
@@ -166,16 +226,6 @@ namespace Demo
 
         add("visual", "Glass Effect", "glass_scrim", "Backdrop Dim", [](const char* l) { g_ui->widgets().SliderFloat(l, &g_scrimAlpha, 0.0f, 0.85f, "%.2f"); });
 
-        add("visual", "Notifications", "notify", "Fire Toast", [](const char*) {
-            if (g_ui->widgets().Button("Info", ImVec2(-1.0f, 0.0f), false))
-                g_ui->widgets().Toast(IVUI::ToastType::Info, "提示 Info", "这是一条信息通知");
-            if (g_ui->widgets().Button("Success", ImVec2(-1.0f, 0.0f), true))
-                g_ui->widgets().Toast(IVUI::ToastType::Success, "成功 Success", "操作已完成");
-            if (g_ui->widgets().Button("Warning", ImVec2(-1.0f, 0.0f), false))
-                g_ui->widgets().Toast(IVUI::ToastType::Warning, "警告 Warning", "请注意这个状态");
-            if (g_ui->widgets().Button("Error", ImVec2(-1.0f, 0.0f), false))
-                g_ui->widgets().Toast(IVUI::ToastType::Error, "错误 Error", "发生了一个错误");
-        });
     }
 
     struct PanelItem { std::string featureId; std::string customName; }; // customName overrides the label
@@ -257,7 +307,10 @@ namespace Demo
 
     static void ApplyTheme()
     {
-        IVUI::Theme base = IVUI::GetStyle((IVUI::Style)g_style);
+        IVUI::Theme base = g_style < 5 ? IVUI::GetStyle((IVUI::Style)g_style)
+            : IVUI::MakeTheme(g_style == 6 ? IVUI::ColorScheme::Light : IVUI::ColorScheme::Dark,
+                             g_density ? IVUI::Density::Compact : IVUI::Density::Comfortable);
+        g_ui->motion().Configure({g_motionSpeed, g_reducedMotion});
         static int prevStyle = -1;
         if (g_style != prevStyle)
         {
@@ -492,12 +545,246 @@ namespace Demo
         }
     }
 
+    static void RenderEffectsPreviewTab()
+    {
+        const IVUI::Theme& th = g_ui->theme().Current();
+        const float S = th.Scale;
+        Heading("Effects Preview");
+
+        g_ui->layouts().Section("Motion", &g_effectMotionOpen, [&] {
+            g_ui->widgets().Toggle("Preview motion", &g_motionPreview);
+            auto motion = g_ui->motion().BeginItem(
+                "effects_motion_preview", g_motionPreview,
+                th.ResolveElement(IVUI::ElementRole::Default).motion);
+            if (motion)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, th.Accent);
+                ImGui::TextUnformatted("Fade + slide item motion");
+                ImGui::PopStyleColor();
+            }
+        });
+
+        g_ui->layouts().Section("Item Effects", &g_effectItemOpen, [&] {
+            IVUI::ItemEffectRequest customEffects{};
+            customEffects.Add(IVUI::ItemEffectLayer::Shadow(
+                {0.0f, 0.0f, 0.0f, 0.75f}, {0.0f, 5.0f}, 7.0f, 0.45f));
+            const ImVec4 accent = ImGui::ColorConvertU32ToFloat4(th.Accent);
+            customEffects.Add(IVUI::ItemEffectLayer::Glow(
+                {accent.x, accent.y, accent.z, accent.w}, 8.0f, 0.55f));
+
+            IVUI::ButtonOptions customButton{};
+            customButton.element.effects = &customEffects;
+            const IVUI::ItemMotionStyle buttonMotion =
+                th.ResolveElement(IVUI::ElementRole::Button).motion;
+            customButton.element.motion = &buttonMotion;
+            g_ui->widgets().Button("Shadow + Glow", customButton);
+            ImGui::SameLine();
+            g_ui->widgets().Button("Theme default", {});
+
+            const ImVec2 cursor = ImGui::GetCursorScreenPos();
+            const ImVec2 size(220.0f * S, 42.0f * S);
+            ImGui::Dummy(size);
+            IVUI::ElementOptions elementOptions;
+            elementOptions.role = IVUI::ElementRole::Panel;
+            elementOptions.effects = &customEffects;
+            auto element = g_ui->elements().Begin(
+                ImGui::GetWindowDrawList(), ImGui::GetID("effects_custom_geometry"), true,
+                elementOptions);
+            if (element)
+            {
+                ImDrawList* draw = ImGui::GetWindowDrawList();
+                draw->AddRectFilled(cursor, cursor + size, th.Surface2, th.RoundingControl * S);
+                draw->AddRect(cursor, cursor + size, th.Accent,
+                              th.RoundingControl * S, 0, th.BorderThickness * S);
+                IVUI::AddTextScaled(draw, cursor + ImVec2(14.0f * S, 10.0f * S),
+                                    th.Text, "Arbitrary element geometry", th.FontSizeSmall);
+            }
+        });
+
+        g_ui->layouts().Section("Components: defaults and element overrides",
+                                &g_effectComponentsOpen, [&] {
+            static bool overrideElement = true;
+            g_ui->widgets().Toggle("Element override", &overrideElement);
+
+            IVUI::ItemEffectRequest pickerEffects{};
+            const ImVec4 pickerAccent = ImGui::ColorConvertU32ToFloat4(th.Accent);
+            pickerEffects.Add(IVUI::ItemEffectLayer::Glow(
+                {pickerAccent.x, pickerAccent.y, pickerAccent.z, pickerAccent.w},
+                10.0f, 0.65f));
+            IVUI::ElementOptions pickerElement;
+            pickerElement.role = IVUI::ElementRole::ColorPicker;
+            pickerElement.effects = &pickerEffects;
+            const IVUI::ElementVisualStyle pickerVisual =
+                th.ResolveElement(IVUI::ElementRole::ColorPicker);
+            pickerElement.motion = &pickerVisual.motion;
+
+            ImVec4 defaultColor = g_accent;
+            ImVec4 overrideColor = g_glassTint;
+            g_ui->widgets().ColorPicker("Theme default color", &defaultColor);
+            IVUI::ColorPickerOptions overrideOptions;
+            overrideOptions.element = overrideElement ? &pickerElement : nullptr;
+            g_ui->widgets().ColorPicker("Element override color", &overrideColor,
+                                        overrideOptions);
+
+            ImGui::SeparatorText("Default controls");
+            g_ui->widgets().Button("Default button");
+            ImGui::SameLine();
+            g_ui->widgets().Toggle("Default toggle", &g_motionPreview);
+            ImGui::SameLine();
+            int galleryMode = 0;
+            g_ui->widgets().Combo("Default combo", &galleryMode, {"Default", "Active", "Muted"});
+
+            ImGui::SeparatorText("Overridden geometry");
+            const ImVec2 galleryCursor = ImGui::GetCursorScreenPos();
+            const ImVec2 gallerySize(260.0f * S, 42.0f * S);
+            ImGui::Dummy(gallerySize);
+            auto galleryElement = g_ui->elements().Begin(
+                ImGui::GetWindowDrawList(), ImGui::GetID("component_gallery_override"), true,
+                pickerElement);
+            if (galleryElement)
+            {
+                ImDrawList* galleryDraw = ImGui::GetWindowDrawList();
+                galleryDraw->AddRectFilled(galleryCursor, galleryCursor + gallerySize,
+                                           th.Surface2, th.RoundingControl * S);
+                galleryDraw->AddText(galleryCursor + ImVec2(14.0f * S, 12.0f * S),
+                                     th.Text, "Element-level effect override");
+            }
+        });
+
+        g_ui->layouts().Section("Animated Text", &g_effectTextOpen, [&] {
+            IVUI::AnimatedTextOptions rainbowWave;
+            rainbowWave.animation = IVUI::TextAnimation::Rainbow | IVUI::TextAnimation::Wave;
+            rainbowWave.speed = 0.35f;
+            rainbowWave.waveAmplitude = 3.5f;
+            g_ui->widgets().AnimatedText("Rainbow + wave text##rainbow_wave", rainbowWave);
+
+            IVUI::AnimatedTextOptions gradientPulse;
+            gradientPulse.animation = IVUI::TextAnimation::GradientFlow | IVUI::TextAnimation::ColorPulse;
+            gradientPulse.speed = 0.6f;
+            g_ui->widgets().AnimatedText("Theme gradient pulse##gradient_pulse", gradientPulse);
+
+            IVUI::AnimatedTextOptions typewriter;
+            typewriter.animation = IVUI::TextAnimation::Typewriter;
+            typewriter.typewriterDuration = 2.2f;
+            g_ui->widgets().AnimatedText("Typewriter animation##typewriter", typewriter);
+
+            IVUI::AnimatedTextOptions flickerFade;
+            flickerFade.animation = IVUI::TextAnimation::Flicker | IVUI::TextAnimation::FadeIn;
+            flickerFade.fadeDuration = 1.0f;
+            flickerFade.fadeStagger = 0.45f;
+            g_ui->widgets().AnimatedText("Flicker + fade-in##flicker_fade", flickerFade);
+        });
+
+        g_ui->layouts().Section("Notifications", &g_effectNotificationOpen, [&] {
+            if (g_ui->widgets().Button("Info"))
+                g_ui->widgets().Notify("提示 Info", "这是一条信息通知");
+            if (g_ui->widgets().Button("Dynamic Island", {.prominent = true}))
+            {
+                IVUI::NotificationOptions options;
+                options.type = IVUI::NotificationType::Success;
+                options.style = IVUI::NotificationStyle::DynamicIsland;
+                options.placement = IVUI::NotificationPlacement::TopCenter;
+                g_ui->widgets().Notify("成功 Success", "灵动岛是通知的逐实例样式参数", options);
+            }
+            if (g_ui->widgets().Button("Top Left Warning"))
+            {
+                IVUI::NotificationOptions options;
+                options.type = IVUI::NotificationType::Warning;
+                options.placement = IVUI::NotificationPlacement::TopLeft;
+                g_ui->widgets().Notify("警告 Warning", "此通知独立覆盖主题位置", options);
+            }
+            if (g_ui->widgets().Button("Glass"))
+            {
+                IVUI::NotificationOptions options;
+                options.type = IVUI::NotificationType::Info;
+                options.style = IVUI::NotificationStyle::Glass;
+                g_ui->widgets().Notify("Glass notification", "Translucent themed surface", options);
+            }
+            if (g_ui->widgets().Button("Compact"))
+            {
+                IVUI::NotificationOptions options;
+                options.type = IVUI::NotificationType::Success;
+                options.style = IVUI::NotificationStyle::Compact;
+                g_ui->widgets().Notify("Compact", "Small notification layout", options);
+            }
+            if (g_ui->widgets().Button("Banner"))
+            {
+                IVUI::NotificationOptions options;
+                options.type = IVUI::NotificationType::Warning;
+                options.style = IVUI::NotificationStyle::Banner;
+                options.placement = IVUI::NotificationPlacement::TopCenter;
+                g_ui->widgets().Notify("Banner notification", "Full-width placement with a top accent", options);
+            }
+            if (g_ui->widgets().Button("Error"))
+            {
+                IVUI::NotificationOptions options;
+                options.type = IVUI::NotificationType::Error;
+                g_ui->widgets().Notify("错误 Error", "发生了一个错误", options);
+            }
+            if (g_ui->widgets().Button("Action + Progress"))
+            {
+                IVUI::NotificationOptions options;
+                options.type = IVUI::NotificationType::Info;
+                options.placement = IVUI::NotificationPlacement::BottomCenter;
+                options.progress = 0.68f;
+                options.duration = 0.0f;
+                options.action = IVUI::NotificationAction{"Apply", ApplyNotificationAction, nullptr, true};
+                g_ui->widgets().Notify("Loadout ready", "A persistent notification with an action", options);
+            }
+        });
+
+        g_ui->layouts().Section("Charts", &g_effectChartsOpen, [&] {
+            if (!g_charts)
+                g_charts = IVUI::ChartsContext::Create();
+            const IVUI::ChartSeriesView series[] = {
+                {"Primary", g_chartPrimary, IM_ARRAYSIZE(g_chartPrimary), 0.0, 1.0},
+                {"Secondary", g_chartSecondary, IM_ARRAYSIZE(g_chartSecondary), 0.0, 1.0}};
+            IVUI::ChartOptions options;
+            options.size = ImVec2(0.0f, 170.0f * S);
+            options.showTooltip = true;
+            g_charts->Line("phase4_chart_line", series, options, &th);
+            g_charts->Bar("phase4_chart_bar", series, options, &th);
+            g_charts->Area("phase4_chart_area", series, options, &th);
+            g_charts->Scatter("phase4_chart_scatter", series, options, &th);
+
+            const float time = static_cast<float>(ImGui::GetTime());
+            for (int index = 0; index < IM_ARRAYSIZE(g_chartStream); ++index)
+                g_chartStream[index] = 0.5 + 0.4 * std::sin(time * 2.0 + index * 0.28);
+            const IVUI::ChartSeriesView stream[] = {
+                {"Live", g_chartStream, IM_ARRAYSIZE(g_chartStream), 0.0, 1.0}};
+            IVUI::ChartStreamOptions streamOptions;
+            streamOptions.maxPoints = IM_ARRAYSIZE(g_chartStream);
+            streamOptions.followLatest = true;
+            g_charts->RealTime("phase4_chart_stream", stream, streamOptions, options, &th);
+        });
+
+        g_ui->layouts().Section("Model Viewer", &g_effectModelViewerOpen, [&] {
+            if (EnsurePreviewScene())
+            {
+                IVUI::ModelViewerOptions options;
+                options.size = ImVec2(0.0f, 260.0f * S);
+                IVUI::ModelViewer("phase5_model_viewer", g_previewScene,
+                                  g_modelViewerState, options);
+            }
+            else
+            {
+                ImGui::TextDisabled("CesiumMilkTruck.glb: %s",
+                                    g_previewSceneError.empty()
+                                        ? "asset unavailable"
+                                        : g_previewSceneError.c_str());
+            }
+        });
+    }
+
     static void RenderConfigTab()
     {
         Heading("Config");
         g_ui->widgets().HotkeyInput("Menu Key", &g_menuKey);
         g_ui->widgets().Combo("界面风格 Style", &g_style,
-                    { "Material You", "VAPE", "Neverlose", "ImGui Classic", "iOS Liquid Glass" });
+                    { "Material You", "VAPE", "Neverlose", "ImGui Classic", "iOS Liquid Glass", "Studio Dark", "Studio Light" });
+        g_ui->widgets().Combo("Density", &g_density, {"Comfortable", "Compact"});
+        g_ui->widgets().Toggle("Reduced Motion", &g_reducedMotion);
+        g_ui->widgets().SliderFloat("Motion Speed", &g_motionSpeed, 0.0f, 2.0f, "%.2fx");
         IVUI::Tooltip("切换整套视觉风格 · 切换会平滑形变");
         g_ui->widgets().ColorPicker("Accent Color", &g_accent);
         g_ui->widgets().ColorPicker("Glass Tint", &g_glassTint);
@@ -526,9 +813,6 @@ namespace Demo
             g_ui->widgets().KeybindRow("Panic", &g_kbPanic);
         });
         g_ui->widgets().Toggle("Streamproof", &g_streamproof);
-        if (g_ui->widgets().Button("Save Config")) {}
-        ImGui::SameLine();
-        if (g_ui->widgets().Button("Load Config")) {}
     }
 
     static void RenderAddBanner()
@@ -548,7 +832,7 @@ namespace Demo
         IVUI::AddTextScaled(dl, ImVec2(c.x + 10.0f * S, c.y + (h - ts.y) * 0.5f), th.Text, msg.c_str(), th.FontSizeLabel);
         const float bw = 80.0f * S, bh = th.ControlHeight * S * 0.6f;
         ImGui::SetCursorScreenPos(ImVec2(c.x + w - bw - 6.0f * S, c.y + (h - bh) * 0.5f));
-        if (g_ui->widgets().Button("完成##adddone", ImVec2(bw, bh), true))
+        if (g_ui->widgets().Button("完成##adddone", {.size = ImVec2(bw, bh), .prominent = true}))
             g_editTarget.clear();
         ImGui::SetCursorScreenPos(c);
         ImGui::Dummy(ImVec2(w, h + 8.0f * S));
@@ -678,7 +962,7 @@ namespace Demo
             g_panels.erase(std::remove_if(g_panels.begin(), g_panels.end(),
                            [](const UserPanel& x) { return x.id == g_pendingDelete; }), g_panels.end());
             g_pendingDelete.clear();
-            g_ui->widgets().Toast(IVUI::ToastType::Info, "面板已移除", "Panel removed");
+            g_ui->widgets().Notify("面板已移除", "Panel removed");
         }
     }
 
@@ -692,8 +976,12 @@ namespace Demo
             if (ImGui::IsKeyPressed((ImGuiKey)(ImGuiKey_1 + i)))
             {
                 g_style = i;
-                g_ui->widgets().Toast(IVUI::ToastType::Success, "风格已切换", IVUI::StyleName((IVUI::Style)i), 8.0f);
-                g_ui->widgets().Toast(IVUI::ToastType::Info, "Notification", "Hello from this style", 8.0f);
+                IVUI::NotificationOptions options;
+                options.type = IVUI::NotificationType::Success;
+                options.duration = 8.0f;
+                g_ui->widgets().Notify("风格已切换", IVUI::StyleName((IVUI::Style)i), options);
+                options.type = IVUI::NotificationType::Info;
+                g_ui->widgets().Notify("Notification", "Hello from this style", options);
             }
 
         const IVUI::Theme& th0 = g_ui->theme().Current();
@@ -704,6 +992,7 @@ namespace Demo
         {
             CreatePanel(vp, S0);
             g_panels.back().name = "Quick Panel";
+            g_panels.back().open = false;
             g_panels.back().items = { { "aimbot.enabled", "" }, { "player.god", "" }, { "weapon.norecoil", "" } };
             g_seeded = true;
         }
@@ -725,7 +1014,9 @@ namespace Demo
         }
 
         const float visTarget = *open ? 1.0f : 0.0f;
-        g_menuVis += (visTarget - g_menuVis) * ImClamp(ImGui::GetIO().DeltaTime * 10.0f, 0.0f, 1.0f);
+        const float dt = ImClamp(ImGui::GetIO().DeltaTime, 0.0f, 0.1f);
+        const float menuResponse = IVUI::MotionResponse(14.0f);
+        g_menuVis += (visTarget - g_menuVis) * menuResponse;
         if (ImFabs(g_menuVis - visTarget) < 0.003f) g_menuVis = visTarget;
         if (g_menuVis < 0.003f)
             return;
@@ -742,132 +1033,119 @@ namespace Demo
 
         const IVUI::Theme& th = g_ui->theme().Current();
         const float S = th.Scale;
-        const float pad = th.PanelPadding.x * S;
-        const float titleH = th.ControlHeight * S;
-        const float sidebarW = 190.0f * S;
-
-        // FirstUseEver preserves user-driven resizing after the initial layout.
-        const ImVec2 menuSize = ImVec2(940.0f * S, 580.0f * S);
+        const ImVec2 menuSize(ImMin(1100.0f * S, vp->WorkSize.x),
+                              ImMin(760.0f * S, vp->WorkSize.y));
         ImGui::SetNextWindowSize(menuSize, ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + (vp->Size.x - menuSize.x) * 0.5f,
-                                       vp->Pos.y + (vp->Size.y - menuSize.y) * 0.5f), ImGuiCond_Once);
-
-        // A title-less window needs edge resizing enabled explicitly.
+        ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + (vp->WorkSize.x - menuSize.x) * 0.5f,
+                                       vp->WorkPos.y + (vp->WorkSize.y - menuSize.y) * 0.5f), ImGuiCond_Once);
+        ImGui::SetNextWindowSizeConstraints(
+            ImVec2(ImMin(300.0f * S, vp->WorkSize.x), ImMin(240.0f * S, vp->WorkSize.y)),
+            vp->WorkSize);
         ImGui::GetIO().ConfigWindowsResizeFromEdges = true;
-
-        ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar |
-                                 ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse |
-                                 ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoSavedSettings;
-        if (ImGui::Begin("##ivui_main_menu", open, flags))
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar |
+            ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoSavedSettings |
+            ImGuiWindowFlags_NoBackground;
+        if (ImGui::Begin("##ivui_main_menu", nullptr, flags))
         {
-            ImDrawList* dl = ImGui::GetWindowDrawList();
-            const ImVec2 wpos = ImGui::GetWindowPos();
-            const ImVec2 wsize = ImGui::GetWindowSize();
+            IVUI::WorkbenchOptions workbench;
+            workbench.title = "ImGuiVectorUI";
+            workbench.status = g_reducedMotion ? "Ready  |  Reduced motion" : "Ready";
+            workbench.transparentSurface = true;
 
-            // Submit the backdrop before ImGui so it remains beneath menu content.
-            const float mround = th.RoundingPanel * S;
+            const ImVec2 mainPos = ImGui::GetWindowPos();
+            const ImVec2 mainSize = ImGui::GetWindowSize();
+            const float mainRounding = th.RoundingPanel * S;
+            if (g_ui->effects().Capabilities() != IVUI::EffectCapabilities::None)
             {
                 IVUI::BlurEffectParams blur;
-                blur.bounds.min = {wpos.x, wpos.y};
-                blur.bounds.max = {wpos.x + wsize.x, wpos.y + wsize.y};
+                blur.bounds.min = {mainPos.x, mainPos.y};
+                blur.bounds.max = {mainPos.x + mainSize.x, mainPos.y + mainSize.y};
                 blur.sigma = th.BackdropBlurSigma;
-                blur.rounding = mround;
+                blur.rounding = mainRounding;
                 blur.opacity = g_menuVis;
                 g_ui->effects().Submit(IVUI::EffectRequest::BackdropBlur(blur));
 
-                IVUI::GlassEffectParams g;
-                g.bounds.min = {wpos.x, wpos.y};
-                g.bounds.max = {wpos.x + wsize.x, wpos.y + wsize.y};
-                g.rounding = mround;
-                g.opacity = th.GlassOpacity * g_menuVis;
                 const ImVec4 tint = ImGui::ColorConvertU32ToFloat4(th.GlassTint);
                 const ImVec4 accent = ImGui::ColorConvertU32ToFloat4(th.Accent);
-                g.tint = {tint.x, tint.y, tint.z, tint.w}; g.tintStrength = th.GlassTintStrength;
-                g.accent = {accent.x, accent.y, accent.z, accent.w};
-                g.blurSigma = th.BackdropBlurSigma;
-                g.refraction = th.GlassRefraction * S;
-                g.edgeWidth = th.GlassEdgeWidth * S;
-                g.edgeHighlight = th.GlassEdgeHighlight;
-                g.thickness = th.GlassThickness;
-                g.shapePower = th.GlassShapePower;
-                g.lensStrength = th.GlassLensStrength;
-                g.lensBase = th.GlassLensBase;
-                g.lensFalloff = th.GlassLensFalloff;
-                g.lensBias = th.GlassLensBias;
-                g.lensPower = th.GlassLensPower;
-                g.noise = th.GlassNoise * S;
-                g.glowStrength = th.PanelGlow * g_menuVis; g.glowSpread = th.PanelGlowSpread * S;
-                g.shadowStrength = th.PanelShadow * g_menuVis; g.shadowSpread = th.PanelShadowSpread * S;
-                g_ui->effects().Glass(g);
+                IVUI::GlassEffectParams glass;
+                glass.bounds = blur.bounds;
+                glass.rounding = mainRounding;
+                glass.opacity = th.GlassOpacity * g_menuVis;
+                glass.tint = {tint.x, tint.y, tint.z, tint.w};
+                glass.tintStrength = th.GlassTintStrength;
+                glass.accent = {accent.x, accent.y, accent.z, accent.w};
+                glass.blurSigma = th.BackdropBlurSigma;
+                glass.refraction = th.GlassRefraction * S;
+                glass.edgeWidth = th.GlassEdgeWidth * S;
+                glass.edgeHighlight = th.GlassEdgeHighlight;
+                glass.thickness = th.GlassThickness;
+                glass.shapePower = th.GlassShapePower;
+                glass.lensStrength = th.GlassLensStrength;
+                glass.lensBase = th.GlassLensBase;
+                glass.lensFalloff = th.GlassLensFalloff;
+                glass.lensBias = th.GlassLensBias;
+                glass.lensPower = th.GlassLensPower;
+                glass.noise = th.GlassNoise * S;
+                g_ui->effects().Submit(IVUI::EffectRequest::Glass(glass));
             }
-            if (th.BorderThickness > 0.01f)
-                dl->AddRect(wpos, wpos + wsize, th.Border, mround, 0, th.BorderThickness * S);
 
-            const ImVec2 titleEnd = ImVec2(wpos.x + wsize.x, wpos.y + titleH);
-            dl->AddRectFilled(wpos, titleEnd, IVUI::WithAlphaMul(th.Surface1, th.PanelBodyAlpha * 0.10f * g_menuVis), mround, ImDrawFlags_RoundCornersTop);
-            IVUI::Sheen(dl, wpos, titleEnd, mround, th.Sheen);
-            dl->AddLine(ImVec2(wpos.x + pad, titleEnd.y), ImVec2(titleEnd.x - pad, titleEnd.y), th.Accent, ImMax(2.0f * S, 1.0f));
-            const char* title = "VECTOR MENU";
-            const ImVec2 tsz = IVUI::CalcTextScaled(title, th.FontSizeTitle, IVUI::GetTitleFont());
-            IVUI::AddTextScaled(dl, ImVec2(wpos.x + pad, wpos.y + (titleH - tsz.y) * 0.5f), th.Text, title, th.FontSizeTitle, IVUI::GetTitleFont());
-            const char* sub = "注入悬浮菜单 · メニュー · Меню · overlay";
-            const ImVec2 subSz = IVUI::CalcTextScaled(sub, th.FontSizeSmall);
-            IVUI::AddTextScaled(dl, ImVec2(titleEnd.x - subSz.x - pad, wpos.y + (titleH - subSz.y) * 0.5f), th.TextDisabled, sub, th.FontSizeSmall);
-
-            ImGui::SetCursorPos(ImVec2(pad, titleH + pad));
-            ImGui::BeginChild("##sidebar", ImVec2(sidebarW, -pad), ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
-            {
-                ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 6.0f * S));
-                for (int i = 0; i < (int)g_categories.size(); ++i)
-                    g_ui->layouts().Tab(g_categories[i].name.c_str(), g_categories[i].icon, i, &g_tab);
-                g_ui->layouts().Tab("Config", IVUI::IconType::Gear, (int)g_categories.size(), &g_tab);
-                ImGui::PopStyleVar();
-
-                ImGui::Dummy(ImVec2(0.0f, 10.0f * S));
-                if (g_ui->widgets().Button("+ New Panel", ImVec2(-1.0f, 0.0f), true))
+            g_ui->layouts().Workbench("studio", workbench, [&](bool compact) {
+                const int effectsTab = static_cast<int>(g_categories.size());
+                auto name = [&](int index) -> const char* {
+                    if (index < effectsTab) return g_categories[index].name.c_str();
+                    if (index == effectsTab) return "Components";
+                    if (index == effectsTab + 1) return "Layouts";
+                    return "Appearance";
+                };
+                if (compact)
                 {
-                    CreatePanel(vp, S);
-                    g_ui->widgets().Toast(IVUI::ToastType::Success, "面板已创建", g_panels.back().name.c_str());
-                }
-                IVUI::Tooltip("新建一个自定义面板 · 双击面板标题可重命名");
-            }
-            ImGui::EndChild();
-
-            ImGui::SameLine(0.0f, pad);
-            ImGui::BeginChild("##content", ImVec2(-pad, -pad), ImGuiChildFlags_None,
-                              ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar);
-            {
-                ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f * S, 12.0f * S));
-                if (!g_editTarget.empty())
-                    RenderAddBanner();
-                // Complete the fade-out before switching content to avoid mixed pages.
-                static int shownTab = -1;
-                static float tabFade = 1.0f;
-                if (shownTab < 0)
-                    shownTab = g_tab;
-                if (shownTab != g_tab)
-                {
-                    tabFade = ImMax(0.0f, tabFade - ImGui::GetIO().DeltaTime * 8.0f);
-                    if (tabFade <= 0.001f)
-                        shownTab = g_tab;
+                    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+                    if (ImGui::BeginCombo("##page", name(g_tab)))
+                    {
+                        for (int index = 0; index < effectsTab + 3; ++index)
+                        {
+                            if (ImGui::Selectable(name(index), g_tab == index)) g_tab = index;
+                            if (g_tab == index) ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
                 }
                 else
                 {
-                    tabFade = ImMin(1.0f, tabFade + ImGui::GetIO().DeltaTime * 8.0f);
+                    g_ui->layouts().Tab("Layouts", IVUI::IconType::Sliders, effectsTab + 1, &g_tab);
+                    g_ui->layouts().Tab("Components", IVUI::IconType::Star, effectsTab, &g_tab);
+                    g_ui->layouts().Tab("Appearance", IVUI::IconType::Gear, effectsTab + 2, &g_tab);
+                    g_ui->layouts().Separator();
+                    for (int index = 0; index < effectsTab; ++index)
+                        g_ui->layouts().Tab(name(index), g_categories[index].icon, index, &g_tab);
                 }
-                const float tp = IVUI::EaseValue(0.0f, 1.0f, tabFade, IVUI::EASE_IN_OUT_SINE);
-                g_ui->theme().Push(IVUI::ScaleThemeAlpha(g_ui->theme().Current(), tp));
-                if (shownTab < (int)g_categories.size())
-                    RenderCategoryContent(g_categories[shownTab]);
+            }, [&] {
+                const int effectsTab = static_cast<int>(g_categories.size());
+                const float fade = g_ui->motion().Transition(ImGui::GetID("page-motion"), g_tab, 8.0f);
+                ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * fade);
+                g_ui->theme().Push(IVUI::ScaleThemeAlpha(g_ui->theme().Current(), fade));
+                ImGui::PushID(g_tab);
+                if (g_tab < effectsTab)
+                {
+                    if (g_ui->widgets().Button("New Panel"))
+                        CreatePanel(vp, S);
+                    if (!g_editTarget.empty()) RenderAddBanner();
+                    RenderCategoryContent(g_categories[g_tab]);
+                }
+                else if (g_tab == effectsTab)
+                    RenderEffectsPreviewTab();
+                else if (g_tab == effectsTab + 1)
+                    g_layoutGallery.Render(*g_ui);
                 else
                     RenderConfigTab();
+                ImGui::PopID();
                 g_ui->theme().Pop();
                 ImGui::PopStyleVar();
-                g_ui->layouts().OverlayScrollbar();
-            }
-            ImGui::EndChild();
+            });
         }
         ImGui::End();
+        ImGui::PopStyleVar();
 
         RenderCustomPanels(vp, S);
 

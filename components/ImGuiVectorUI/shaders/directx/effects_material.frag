@@ -99,12 +99,12 @@ float4 main(VertexOutput input) : SV_Target
     float3 rimColor = lerp(accent, 1.0, 0.55);
     material += rimColor * edge * (0.22 + lightFacing * 0.78) * edgeHighlight;
 
-    float outside = max(sdf, 0.0);
-    float shadow = exp(-outside / shadowSpread) * shadowStrength * (1.0 - mask);
-    float glow = exp(-outside / glowSpread) * glowStrength * (1.0 - mask);
+    // The material pass is clipped to the rounded surface. Expanding shadow
+    // and glow from this bounded quad creates square remnants at the corners.
+    // Panel-wide bloom and explicit shape effects own those outside layers.
     float materialAlpha = mask * opacity;
-    float alpha = saturate(materialAlpha + shadow + glow);
+    float alpha = materialAlpha;
     clip(alpha - 0.001);
-    float3 color = material * materialAlpha + accent * glow;
+    float3 color = material * materialAlpha;
     return float4(color, alpha);
 }

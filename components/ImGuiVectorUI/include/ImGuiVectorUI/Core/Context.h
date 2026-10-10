@@ -6,23 +6,25 @@
 #include "imgui.h"
 #include "ImGuiVectorUI/Core/AnimState.h"
 #include "ImGuiVectorUI/Theme/Theme.h"
+#include "ImGuiVectorUI/Widgets/Notification.h"
+#include "ImGuiVectorUI/Widgets/ColorPicker.h"
 
 #include <array>
+#include <memory>
 #include <string>
 #include <vector>
 namespace IVUI
 {
     class IEffectRenderer;
-    enum class ToastType;
-
-    struct ToastState
+    struct NotificationState
     {
-        ToastType type{};
+        NotificationHandle handle{};
         std::string title;
         std::string body;
-        float duration = 4.0f;
+        NotificationOptions options;
+        std::string actionLabel;
+        std::string dedupeKey;
         float age = 0.0f;
-        float visibility = 0.0f;
         bool alive = true;
     };
 
@@ -34,7 +36,10 @@ namespace IVUI
         Theme              themeLive;                 ///<  eased toward target; published to stack base
         bool               themeInit = false;         ///<  themeLive seeded yet?
         float              deltaTime = 1.0f / 60.0f; ///<  clamped real frame time
+        MotionSettings     motion{};
+        double             motionTime = 0.0;
         unsigned           frameCount = 0;
+        bool               frameActive = false;
         ImFont*            fontRegular = nullptr;
         ImFont*            fontTitle = nullptr;
         bool               wantCaptureHotkey = false; ///<  a HotkeyInput is capturing this frame
@@ -45,7 +50,12 @@ namespace IVUI
         ImGuiID            panelRenameId = 0;
         bool               panelRenameFocus = false;
         std::array<char, 160> dropBuffer{};
-        std::vector<ToastState> toasts;
+        std::vector<NotificationState> notifications;
+        std::uint64_t       nextNotificationId = 1;
+        ColorPickerState    colorPicker;
+        std::vector<std::shared_ptr<void>> itemEffectData;
+        std::shared_ptr<void> lifetime = std::make_shared<int>(0);
+        void*               activeItemEffect = nullptr;
     };
 
     /** Internal lifecycle used by UI. */

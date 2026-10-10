@@ -1,7 +1,8 @@
 #include "ImGuiVectorUI/Core/Context.h"
-#include "ImGuiVectorUI/Widgets/Toast.h"
+#include "ImGuiVectorUI/Widgets/Notification.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace IVUI
 {
@@ -9,12 +10,16 @@ namespace IVUI
 
     Context* CreateContext()
     {
-        if (ImGui::GetCurrentContext() == nullptr || g_currentContext != nullptr)
-            return g_currentContext;
+        // A library context belongs to one ImGui context, but multiple UI
+        // instances may be created serially while the thread-local current
+        // context still points at a previous instance.  Returning that old
+        // pointer aliases ownership and lets a later UI destroy it.
+        if (ImGui::GetCurrentContext() == nullptr)
+            return nullptr;
         Context* context = new Context();
         context->themeStack.reserve(16);
-        context->themeStack.push_back(ThemeInjectionPeach()); // default palette
-        context->themeTarget = context->themeLive = ThemeInjectionPeach();
+        context->themeStack.push_back(MakeTheme());
+        context->themeTarget = context->themeLive = context->themeStack.front();
         context->themeInit = true;
         g_currentContext = context;
         return context;
@@ -26,7 +31,9 @@ namespace IVUI
             context = g_currentContext;
         if (context == nullptr)
             return;
-        context->toasts.clear();
+        context->notifications.clear();
+        context->itemEffectData.clear();
+        context->lifetime.reset();
         context->anim.Clear();
         if (g_currentContext == context)
             g_currentContext = nullptr;
@@ -63,7 +70,7 @@ namespace IVUI
     void SetContentScale(float scale)
     {
         Context* context = GetContext();
-        if (context != nullptr && scale > 0.0f)
+        if (context != nullptr && std::isfinite(scale) && scale > 0.0f)
             context->contentScale = scale;
     }
 
@@ -79,10 +86,15 @@ namespace IVUI
         if (context == nullptr)
             return;
         // Clamp stalls to keep animation integration stable.
-        context->deltaTime = std::clamp(ImGui::GetIO().DeltaTime, 0.0f, 0.1f);
+        const float dt = ImGui::GetIO().DeltaTime;
+        context->deltaTime = std::isfinite(dt) ? std::clamp(dt, 0.0f, 0.1f) : 0.0f;
+        if (!context->motion.reducedMotion)
+            context->motionTime += context->deltaTime * context->motion.speed;
         context->frameCount++;
         context->wantCaptureHotkey = false; // widgets set this again during the frame
-        AdvanceThemeMorph(context->deltaTime); // ease live theme -> target, publish to stack base
+        context->itemEffectData.clear();
+        context->activeItemEffect = nullptr;
+        AdvanceThemeMorph(context->deltaTime * context->motion.speed);
 
         // Reclaim state only after traversal has completed for several frames.
         if ((context->frameCount % 240) == 0)

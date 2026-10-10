@@ -70,6 +70,7 @@ namespace IVUI::DX12
         }
         auto* effectRenderer = dynamic_cast<EffectRenderer*>(effects ? effects->GetBackendRenderer() : nullptr);
         EffectRendererFrameInfo effectFrame = frame->effects;
+        effectFrame.drawData = &drawData;
         if (!effectFrame.restoreSrvDescriptorHeap && frame->descriptorHeaps)
         {
             for (UINT index = 0; index < frame->descriptorHeapCount; ++index)
@@ -82,6 +83,8 @@ namespace IVUI::DX12
                 }
             }
         }
+        if (!effectFrame.restoreSrvDescriptorHeap)
+            effectFrame.restoreSrvDescriptorHeap = info_.srvDescriptorHeap;
         if (effectRenderer && !effectRenderer->BeginFrame(effectFrame))
         {
             error = effectRenderer->GetLastError();

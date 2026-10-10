@@ -68,7 +68,11 @@ namespace IVUI
                  ImGuiWindowFlags_NoBackground;
 
         ImGui::SetNextWindowPos(pos, ImGuiCond_Once);
-        ImGui::Begin(label, nullptr, flags);
+        if (!ImGui::Begin(label, nullptr, flags))
+        {
+            ImGui::End();
+            return;
+        }
 
         ImDrawList* draw = ImGui::GetWindowDrawList();
         const ImVec2 wpos = ImGui::GetWindowPos();
@@ -78,7 +82,7 @@ namespace IVUI
         AnimSlot& a = SlotID(win->ID);
 
         a.direction = a.hidden ? -1.0f : 1.0f;
-        a.t = ImClamp(a.t + DeltaTime() * 5.0f * a.direction, 0.0f, 1.0f);
+        a.t = AdvanceProgress(a.t, a.hidden ? 0.0f : 1.0f, 5.0f);
         const float bodyH = EaseValue(0.0f, a.sizeY, a.t, EASE_OUT_QUAD);
         const float totalH = ImClamp(titleH + bodyH + pad, titleH, maxSize.y * S);
         ImGui::SetWindowSize(ImVec2(maxSize.x * S, totalH));
@@ -86,7 +90,9 @@ namespace IVUI
 
         // Submit glass before ImGui so it remains beneath panel content.
         const float pround = th.RoundingPanel * S;
-        if (Context* context = GetContext(); context && context->effectRenderer)
+        if (Context* context = GetContext(); context && context->effectRenderer &&
+            HasEffectCapabilities(context->effectRenderer->GetCapabilities(),
+                                  RequiredEffectCapabilities(EffectId::Glass)))
         {
             BlurEffectParams blur;
             blur.bounds.min = {wpos.x, wpos.y};
@@ -115,8 +121,10 @@ namespace IVUI
             g.lensBias = th.GlassLensBias;
             g.lensPower = th.GlassLensPower;
             g.noise = th.GlassNoise * S;
-            g.glowStrength = th.PanelGlow; g.glowSpread = th.PanelGlowSpread * S;
-            g.shadowStrength = th.PanelShadow; g.shadowSpread = th.PanelShadowSpread * S;
+            // Glass material is surface-only. Outside layers on its bounded
+            // quad produce a rectangular halo behind rounded corners.
+            g.glowStrength = 0.0f; g.glowSpread = th.PanelGlowSpread * S;
+            g.shadowStrength = 0.0f; g.shadowSpread = th.PanelShadowSpread * S;
             SubmitEffect(*context->effectRenderer, EffectRequest::Glass(g));
         }
         else
@@ -135,7 +143,8 @@ namespace IVUI
         const float rr = titleH * 0.28f;
         const int nBtns = hdr ? ((hdr->showEdit ? 1 : 0) + (hdr->showClose ? 1 : 0)) : 0;
         const float titleTextW = ImMax(wsize.x - pad * 2.0f - nBtns * (rr * 2.0f + 6.0f * S), 40.0f * S);
-        const bool renaming = hdr && hdr->editBuf && renameId == win->ID;
+        const bool canRename = hdr && hdr->editBuf && hdr->editBufSize > 0;
+        const bool renaming = canRename && renameId == win->ID;
         if (renaming)
         {
             ImGui::SetCursorScreenPos(ImVec2(wpos.x + pad, wpos.y + (titleH - ImGui::GetFrameHeight()) * 0.5f));
@@ -157,7 +166,7 @@ namespace IVUI
         {
             const ImVec2 titleSize = CalcTextScaled(label, th.FontSizeTitle, GetTitleFont());
             AddTextScaled(draw, ImVec2(wpos.x + pad, wpos.y + (titleH - titleSize.y) * 0.5f), th.Text, label, th.FontSizeTitle, GetTitleFont());
-            if (hdr && hdr->editBuf &&
+            if (canRename &&
                 ImGui::IsMouseHoveringRect(wpos, ImVec2(wpos.x + titleTextW, wpos.y + titleH)) &&
                 ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
             {

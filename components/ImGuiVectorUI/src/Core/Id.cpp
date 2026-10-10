@@ -21,6 +21,6 @@ namespace IVUI
     float DeltaTime()
     {
         Context* c = GetContext();
-        return c ? c->deltaTime : ImGui::GetIO().DeltaTime;
+        return c ? c->deltaTime * c->motion.speed : ImGui::GetIO().DeltaTime;
     }
 }

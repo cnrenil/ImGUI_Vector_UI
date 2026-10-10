@@ -28,4 +28,10 @@ add_custom_command(TARGET ImGuiVectorUIDemoVulkan POST_BUILD
         $<TARGET_FILE_DIR:ImGuiVectorUIDemoVulkan>/unifont.otf
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         ${CMAKE_CURRENT_SOURCE_DIR}/../DemoMenu/assets/UNIFONT-LICENSE.txt
-        $<TARGET_FILE_DIR:ImGuiVectorUIDemoVulkan>/UNIFONT-LICENSE.txt)
+        $<TARGET_FILE_DIR:ImGuiVectorUIDemoVulkan>/UNIFONT-LICENSE.txt
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_CURRENT_SOURCE_DIR}/../DemoMenu/assets/CesiumMilkTruck.glb
+        $<TARGET_FILE_DIR:ImGuiVectorUIDemoVulkan>/CesiumMilkTruck.glb
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_CURRENT_SOURCE_DIR}/../DemoMenu/assets/CESIUM-MILK-TRUCK-LICENSE.txt
+        $<TARGET_FILE_DIR:ImGuiVectorUIDemoVulkan>/CESIUM-MILK-TRUCK-LICENSE.txt)

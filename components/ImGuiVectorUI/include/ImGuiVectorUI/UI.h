@@ -5,14 +5,22 @@
 
 #include "ImGuiVectorUI/Core/Types.h"
 #include "ImGuiVectorUI/Core/Easing.h"
+#include "ImGuiVectorUI/Core/Motion.h"
+#include "ImGuiVectorUI/Core/Element.h"
 #include "ImGuiVectorUI/Drawing/Effects.h"
 #include "ImGuiVectorUI/Drawing/Icons.h"
 #include "ImGuiVectorUI/Layout/Flex.h"
 #include "ImGuiVectorUI/Layout/Panel.h"
 #include "ImGuiVectorUI/Layout/StatusChips.h"
+#include "ImGuiVectorUI/Layout/Workbench.h"
+#include "ImGuiVectorUI/Layout/Content.h"
 #include "ImGuiVectorUI/Theme/Theme.h"
+#include "ImGuiVectorUI/Theme/Design.h"
+#include "ImGuiVectorUI/Widgets/Button.h"
+#include "ImGuiVectorUI/Widgets/ColorPicker.h"
 #include "ImGuiVectorUI/Widgets/Keybind.h"
-#include "ImGuiVectorUI/Widgets/Toast.h"
+#include "ImGuiVectorUI/Widgets/Notification.h"
+#include "ImGuiVectorUI/Widgets/AnimatedText.h"
 
 #include <cstddef>
 #include <functional>
@@ -71,6 +79,8 @@ namespace IVUI
         float contentScale = 1.0f;
         ImGuiConfigFlags configFlags = ImGuiConfigFlags_NavEnableKeyboard;
         std::function<void(ImGuiIO&, ImFont*&, ImFont*&)> configureFonts;
+        MotionSettings motion{};
+        bool syncImGuiStyle = true;
     };
 
     struct UIFrameInfo
@@ -86,6 +96,7 @@ namespace IVUI
         class Effects;
         class Themes;
         class Motion;
+        class Elements;
 
         static std::unique_ptr<UI> Create(UIConfig config, std::string* error = nullptr) noexcept;
 
@@ -110,6 +121,7 @@ namespace IVUI
         Effects& effects() noexcept;
         Themes& theme() noexcept;
         Motion& motion() noexcept;
+        Elements& elements() noexcept;
 
     private:
         struct Impl;
@@ -121,12 +133,13 @@ namespace IVUI
         std::unique_ptr<Effects> effects_;
         std::unique_ptr<Themes> themes_;
         std::unique_ptr<Motion> motion_;
+        std::unique_ptr<Elements> elements_;
     };
 
     class UI::Widgets final
     {
     public:
-        bool Button(const char* label, ImVec2 size = {}, bool prominent = false);
+        bool Button(const char* label, const ButtonOptions& options = {});
         bool Toggle(const char* label, bool* value);
         bool Checkbox(const char* label, bool* value);
         bool RadioButton(const char* label, bool active);
@@ -141,6 +154,10 @@ namespace IVUI
         bool Combo(const char* label, int* index, std::initializer_list<const char*> items);
         bool ComboMulti(const char* label, std::initializer_list<ComboItem> items);
         bool ColorPicker(const char* label, ImVec4* color);
+        bool ColorPicker(const char* label, ImVec4* color,
+                         const ColorPickerOptions& options);
+        void SetColorPickerEyedropper(ColorPickerEyedropperCallback callback,
+                                      void* userData = nullptr) noexcept;
         bool TextInput(const char* label, char* buffer, std::size_t capacity,
                        const char* hint = nullptr);
         bool InputTextMultiline(const char* label, char* buffer, std::size_t capacity,
@@ -159,12 +176,16 @@ namespace IVUI
         void ProgressBar(const char* label, float fraction, ImVec2 size = {},
                          const char* overlay = nullptr);
         void Spinner(const char* label, float radius = 0.0f, float thickness = 0.0f);
+        void AnimatedText(const char* label, const AnimatedTextOptions& options = {});
         void OpenConfirm(const char* id);
         bool ConfirmPopup(const char* id, const char* message,
                           const char* yes = "Confirm", const char* no = "Cancel");
-        void Toast(ToastType type, const char* title, const char* body = nullptr,
-                   float seconds = 4.0f);
-        void ClearToasts();
+        NotificationHandle Notify(const char* title, const char* body = nullptr,
+                                  const NotificationOptions& options = {});
+        bool UpdateNotification(NotificationHandle handle, const NotificationUpdate& update);
+        bool CloseNotification(NotificationHandle handle);
+        bool SetNotificationProgress(NotificationHandle handle, float progress);
+        void ClearNotifications();
 
     private:
         friend class UI;
@@ -175,6 +196,11 @@ namespace IVUI
     class UI::Layouts final
     {
     public:
+        bool Content(const char* id, std::span<const ContentBlock> blocks,
+                     const ContentLayoutOptions& options = {});
+        void Workbench(const char* id, const WorkbenchOptions& options,
+                       const std::function<void(bool compact)>& navigation,
+                       const std::function<void()>& body);
         void Panel(const char* label, ImVec2 position, ImVec2 maxSize,
                    const std::function<void()>& body, ImGuiWindowFlags flags = 0);
         void Panel(const char* label, ImVec2 position, ImVec2 maxSize,
@@ -216,6 +242,7 @@ namespace IVUI
         EffectCapabilities Capabilities() const noexcept;
         bool Submit(const EffectRequest& request);
         bool Glass(const GlassEffectParams& params);
+        ItemEffectScope BeginItem(const ItemEffectRequest& request);
         bool Register(EffectId id, CustomEffectCallback callback, void* userData = nullptr);
         bool Unregister(EffectId id);
         IEffectRenderer* Renderer() const noexcept;
@@ -249,15 +276,35 @@ namespace IVUI
     class UI::Motion final
     {
     public:
+        void Configure(const MotionSettings& settings);
+        MotionSettings Settings() const;
         float Approach(ImGuiID id, float target, float speed = 12.0f);
         float Toggle(ImGuiID id, bool on, float speed = 8.0f,
                      EasingType easing = EASE_IN_OUT_CIRC);
         float Transition(ImGuiID id, int key, float speed = 6.0f,
-                         EasingType easing = EASE_OUT_CUBIC);
+                          EasingType easing = EASE_OUT_CUBIC);
+        ItemMotionScope BeginItem(ImGuiID id, bool visible,
+                                  const ItemMotionStyle& style = {});
+        ItemMotionScope BeginItem(const char* label, bool visible,
+                                  const ItemMotionStyle& style = {});
 
     private:
         friend class UI;
         explicit Motion(UI& owner) : owner_(owner) {}
+        UI& owner_;
+    };
+
+    class UI::Elements final
+    {
+    public:
+        ElementScope Begin(ImDrawList* drawList, ImGuiID id, bool visible,
+                           const ElementOptions& options = {});
+        ElementScope Begin(ImGuiID id, bool visible, const ElementOptions& options = {});
+        ElementScope Begin(const char* label, bool visible, const ElementOptions& options = {});
+
+    private:
+        friend class UI;
+        explicit Elements(UI& owner) : owner_(owner) {}
         UI& owner_;
     };
 }

@@ -31,7 +31,7 @@ namespace IVUI
         const ImVec2 hmax = ImGui::GetItemRectMax();
 
         a.direction2 = *open ? 1.0f : -1.0f;
-        a.t2 = ImClamp(a.t2 + DeltaTime() * 6.0f * a.direction2, 0.0f, 1.0f);
+        a.t2 = AdvanceProgress(a.t2, *open ? 1.0f : 0.0f, 6.0f);
         const float open01 = a.t2;
         const float rnd = th.RoundingControl * S;
         const bool fullFill = (th.Selection == SEL_FullFill);
@@ -59,7 +59,7 @@ namespace IVUI
         IconChevron(draw, chevC, 14.0f * S, txtCol, ImMax(1.6f * S, 1.0f), *open ? 1 : 0);
 
         a.direction = *open ? 1.0f : -1.0f;
-        a.t = ImClamp(a.t + DeltaTime() * 5.0f * a.direction, 0.0f, 1.0f);
+        a.t = AdvanceProgress(a.t, *open ? 1.0f : 0.0f, 5.0f);
         if (a.t > 0.001f)
         {
             const float visibleH = EaseValue(0.0f, a.sizeY, a.t, EASE_OUT_CUBIC);

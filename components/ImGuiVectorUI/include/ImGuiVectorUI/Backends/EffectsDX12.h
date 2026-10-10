@@ -20,6 +20,7 @@ namespace IVUI::DX12
         ID3D12Device* device = nullptr;
         DXGI_FORMAT targetFormat = DXGI_FORMAT_UNKNOWN;
         UINT nodeMask = 0;
+        UINT framesInFlight = 2;
     };
 
     struct EffectRendererFrameInfo
@@ -37,6 +38,9 @@ namespace IVUI::DX12
         BackgroundShaderParams background{};
         bool renderBloom = false;
         BloomEffectParams bloom{};
+        /** Completed frame-resource slot. The host must wait for its fence before reuse. */
+        UINT frameIndex = UINT_MAX;
+        const ImDrawData* drawData = nullptr;
     };
 
     class EffectRenderer final : public IEffectRenderer
@@ -58,6 +62,8 @@ namespace IVUI::DX12
 
         EffectCapabilities GetCapabilities() const noexcept override;
         void RenderEffect(const EffectRequest& request) noexcept override;
+        void RenderItemEffects(const ItemEffectRequest& request,
+                               const ItemEffectDrawData& drawData) noexcept override;
 
     private:
         struct Impl;

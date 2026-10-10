@@ -1,5 +1,8 @@
 #include <ImGuiVectorUI/ImGuiVectorUI.h>
 #include <ImGuiVectorUI/Backends/ShaderLibrary.h>
+#include <ImGuiVectorUI/Layout/Content.h>
+#include <ImGuiVectorUI/Layout/Workbench.h>
+#include <ImGuiVectorUI/Theme/Design.h>
 
 #include <type_traits>
 
@@ -7,6 +10,16 @@ int main()
 {
     static_assert(!std::is_copy_constructible_v<IVUI::UI>);
     static_assert(!std::is_move_constructible_v<IVUI::UI>);
+
+    IVUI::ThemeDefinition definition;
+    definition.palette = IVUI::ThemePalette::Light();
+    const IVUI::Theme theme = IVUI::MakeTheme(definition);
+    IVUI::ContentLayoutOptions layout;
+    layout.mode = IVUI::ContentLayout::Columns;
+    IVUI::WorkbenchOptions workbench;
+    if (theme.Text == 0 || layout.mode != IVUI::ContentLayout::Columns ||
+        workbench.sidebarWidth <= 0.0f)
+        return 1;
 
 #if defined(IVUI_TEST_DIRECTX_SHADERS)
     const auto directX = IVUI::ShaderLibrary::Find(

@@ -56,7 +56,7 @@ namespace IVUI
 
         ItemAnim& it = a.Item(index);
         it.direction = on ? 1.0f : -1.0f;
-        it.t = ImClamp(it.t + DeltaTime() * 8.0f * it.direction, 0.0f, 1.0f);
+        it.t = AdvanceProgress(it.t, it.direction > 0.0f ? 1.0f : 0.0f, 8.0f);
 
         const ImU32 bg = EaseValueColor(ImColor(th.Surface1), ImColor(th.Accent), it.t, EASE_IN_SINE);
         draw->AddRectFilled(ip, ImVec2(ip.x + width, ip.y + rowH), bg);
@@ -106,7 +106,7 @@ namespace IVUI
 
         const bool open = a.hidden;
         a.direction = open ? 1.0f : -1.0f;
-        a.t = ImClamp(a.t + DeltaTime() * 8.0f * a.direction, 0.0f, 1.0f);
+        a.t = AdvanceProgress(a.t, a.direction > 0.0f ? 1.0f : 0.0f, 8.0f);
 
         bool changed = false;
         if (a.t > 0.001f)
@@ -141,7 +141,7 @@ namespace IVUI
 
         const bool open = a.hidden;
         a.direction = open ? 1.0f : -1.0f;
-        a.t = ImClamp(a.t + DeltaTime() * 8.0f * a.direction, 0.0f, 1.0f);
+        a.t = AdvanceProgress(a.t, a.direction > 0.0f ? 1.0f : 0.0f, 8.0f);
 
         bool changed = false;
         if (a.t > 0.001f)

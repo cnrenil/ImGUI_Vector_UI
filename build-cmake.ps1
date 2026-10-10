@@ -13,10 +13,10 @@ param(
     [switch]$VerifyPackage,
     [switch]$ComponentOnly,
 
-    [string]$VisualStudioRoot = 'A:\Program Files\Microsoft Visual Studio\2022\Professional',
-    [string]$MsvcVersion = '14.44.35207',
-    [string]$WindowsSdkRoot = 'A:\Program Files (x86)\Windows Kits\10',
-    [string]$WindowsSdkVersion = '10.0.26100.0',
+    [string]$VisualStudioRoot = 'C:\Program Files\Microsoft Visual Studio\18\Professional',
+    [string]$MsvcVersion = '14.51.36231',
+    [string]$WindowsSdkRoot = 'C:\Program Files (x86)\Windows Kits\10',
+    [string]$WindowsSdkVersion = '10.0.28000.0',
 
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$CMakeArguments

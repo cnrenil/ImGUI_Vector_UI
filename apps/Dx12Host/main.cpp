@@ -166,7 +166,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 
     std::string effectError;
     auto effects = IVUI::DX12::EffectRenderer::Create(
-        {g_pd3dDevice, DXGI_FORMAT_R8G8B8A8_UNORM}, &effectError);
+        {g_pd3dDevice, DXGI_FORMAT_R8G8B8A8_UNORM, 0, APP_NUM_FRAMES_IN_FLIGHT},
+        &effectError);
     if (!effects)
     {
         ::MessageBoxA(hwnd, effectError.c_str(), "IVUI DX12 Effects", MB_OK | MB_ICONERROR);
@@ -228,6 +229,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
         ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
         return 1;
     }
+    Demo::SetAssetDirectory(exeDir.c_str());
     bool show_menu = true;
     bool done = false;
     while (!done)
@@ -285,19 +287,22 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
         renderFrame.effects = {g_pd3dCommandList, g_mainRenderTargetResource[backBufferIdx],
             g_mainRenderTargetDescriptor[backBufferIdx], D3D12_RESOURCE_STATE_RENDER_TARGET,
             {(UINT)renderTargetSize.x, (UINT)renderTargetSize.y}, (float)ImGui::GetTime()};
+        renderFrame.effects.frameIndex = g_frameIndex % APP_NUM_FRAMES_IN_FLIGHT;
         ID3D12DescriptorHeap* heaps[] = {g_pd3dSrvDescHeap};
         renderFrame.descriptorHeaps = heaps;
         renderFrame.descriptorHeapCount = 1;
         const IVUI::Theme& theme = g_ui->theme().Current();
         const ImVec4 accent = ImGui::ColorConvertU32ToFloat4(theme.Accent);
         renderFrame.effects.renderBackground = true;
+        renderFrame.effects.background.topColor = {0.018f, 0.035f, 0.085f, 1.0f};
+        renderFrame.effects.background.bottomColor = {0.004f, 0.008f, 0.020f, 1.0f};
         renderFrame.effects.background.accent = {accent.x, accent.y, accent.z, accent.w};
-        renderFrame.effects.background.secondary = {0.0f, 0.72f, 0.88f, 1.0f};
-        renderFrame.effects.background.gridSize = 48.0f * theme.Scale;
-        renderFrame.effects.background.gridStrength = 0.42f;
-        renderFrame.effects.background.vignette = 0.48f;
-        renderFrame.effects.background.animationSpeed = 1.15f;
-        renderFrame.effects.background.intensity = 1.3f;
+        renderFrame.effects.background.secondary = {0.95f, 0.18f, 0.48f, 1.0f};
+        renderFrame.effects.background.gridSize = 72.0f;
+        renderFrame.effects.background.gridStrength = 0.34f;
+        renderFrame.effects.background.vignette = 0.38f;
+        renderFrame.effects.background.animationSpeed = 0.42f;
+        renderFrame.effects.background.intensity = 1.15f;
         renderFrame.effects.renderBloom = theme.PanelGlow > 0.001f;
         renderFrame.effects.bloom.bounds = {
             {0.0f, 0.0f}, {renderTargetSize.x, renderTargetSize.y}};

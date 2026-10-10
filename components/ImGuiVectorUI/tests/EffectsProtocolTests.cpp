@@ -15,9 +15,13 @@ namespace
 int main()
 {
     static_assert(std::is_trivially_copyable_v<IVUI::EffectRequest>);
+    static_assert(std::is_trivially_copyable_v<IVUI::ItemEffectRequest>);
     static_assert(IVUI::HasEffectCapabilities(
         IVUI::AllEffectCapabilities,
         IVUI::RequiredEffectCapabilities(IVUI::EffectId::Glass)));
+    static_assert(IVUI::HasEffectCapabilities(
+        IVUI::AllEffectCapabilities,
+        IVUI::EffectCapabilities::ItemSourceReplacement));
     static_assert(!IVUI::HasEffectCapabilities(
         IVUI::EffectCapabilities::GlassMaterial,
         IVUI::RequiredEffectCapabilities(IVUI::EffectId::Glass)));
@@ -52,5 +56,14 @@ int main()
     Check(constants.values[22] == 1.2f);
     Check(constants.values[28] == 1.0f / 800.0f);
     Check(constants.values[30] == 3.0f);
+
+    IVUI::ItemEffectRequest item{};
+    Check(item.Add(IVUI::ItemEffectLayer::Shadow(
+        {0.0f, 0.0f, 0.0f, 0.8f}, {2.0f, 4.0f}, 6.0f, 0.5f)));
+    Check(item.Add(IVUI::ItemEffectLayer::Glow(color, 8.0f, 0.7f)));
+    Check(item.Add(IVUI::ItemEffectLayer::Blur(3.0f)));
+    Check(item.layerCount == 3);
+    Check(IVUI::HasItemEffectFlags(item.layers[2].flags,
+                                   IVUI::ItemEffectFlags::ReplaceSource));
     return EXIT_SUCCESS;
 }

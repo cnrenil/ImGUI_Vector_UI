@@ -1,15 +1,20 @@
 #include "ImGuiVectorUI/Backends/EffectsDX12.h"
 #include "ImGuiVectorUI/Backends/ShaderLibrary.h"
+#include "ItemEffectsInternal.h"
 
 #include <wrl/client.h>
 
 #include <array>
+#include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <cstdio>
 #include <exception>
+#include <limits>
 #include <new>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace IVUI::DX12
 {
@@ -58,10 +63,44 @@ namespace IVUI::DX12
             constants.values[13] = offset.y;
             return constants;
         }
+
+        EffectConstants MakeItemCompositeConstants(const ItemEffectLayer& layer,
+                                                    EffectExtent extent,
+                                                    ImVec2 framebufferScale)
+        {
+            EffectConstants constants{};
+            constants.values[0] = layer.color.r;
+            constants.values[1] = layer.color.g;
+            constants.values[2] = layer.color.b;
+            constants.values[3] = layer.color.a;
+            constants.values[4] = extent.width != 0
+                ? layer.offset.x * framebufferScale.x / static_cast<float>(extent.width) : 0.0f;
+            constants.values[5] = extent.height != 0
+                ? layer.offset.y * framebufferScale.y / static_cast<float>(extent.height) : 0.0f;
+            constants.values[6] = layer.strength;
+            constants.values[7] = layer.opacity;
+            constants.values[8] = static_cast<float>(layer.type);
+            constants.values[31] = 1.0f;
+            return constants;
+        }
     }
 
     struct EffectRenderer::Impl
     {
+        struct ItemUpload
+        {
+            ComPtr<ID3D12Resource> vertices;
+            ComPtr<ID3D12Resource> indices;
+            std::size_t vertexCapacity = 0;
+            std::size_t indexCapacity = 0;
+        };
+
+        struct FrameUploads
+        {
+            std::vector<ItemUpload> items;
+            std::size_t nextItem = 0;
+        };
+
         explicit Impl(const EffectRendererCreateInfo& info) : createInfo(info) {}
 
         EffectRendererCreateInfo createInfo{};
@@ -74,6 +113,7 @@ namespace IVUI::DX12
         ComPtr<ID3D12PipelineState> bloomFilterPipeline;
         ComPtr<ID3D12PipelineState> texturePipeline;
         ComPtr<ID3D12PipelineState> bloomCompositePipeline;
+        ComPtr<ID3D12PipelineState> itemCompositePipeline;
         ComPtr<ID3D12DescriptorHeap> srvHeap;
         ComPtr<ID3D12DescriptorHeap> rtvHeap;
         ComPtr<ID3D12Resource> source;
@@ -81,11 +121,14 @@ namespace IVUI::DX12
         ComPtr<ID3D12Resource> pong;
         std::array<D3D12_GPU_DESCRIPTOR_HANDLE, 3> srv{};
         std::array<D3D12_CPU_DESCRIPTOR_HANDLE, 2> rtv{};
+        D3D12_CPU_DESCRIPTOR_HANDLE sourceRtv{};
+        std::vector<FrameUploads> uploadFrames;
         EffectExtent resourceExtent{};
         bool frameActive = false;
         bool captured = false;
         bool immutableBackdrop = false;
-        float cachedBlurSigma = -1.0f;
+        float cachedBlurSigmaX = -1.0f;
+        float cachedBlurSigmaY = -1.0f;
         D3D12_GPU_DESCRIPTOR_HANDLE cachedBlur{};
         std::string error;
 
@@ -96,11 +139,13 @@ namespace IVUI::DX12
 
         bool Initialize()
         {
-            if (createInfo.device == nullptr || createInfo.targetFormat == DXGI_FORMAT_UNKNOWN)
+            if (createInfo.device == nullptr || createInfo.targetFormat == DXGI_FORMAT_UNKNOWN ||
+                createInfo.framesInFlight == 0)
             {
-                error = "DX12 effects require a device and target format.";
+                error = "DX12 effects require a device, target format, and frames in flight.";
                 return false;
             }
+            uploadFrames.resize(createInfo.framesInFlight);
 
             D3D12_DESCRIPTOR_RANGE range{};
             range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
@@ -207,7 +252,8 @@ namespace IVUI::DX12
                 !createPipeline("effects_shape.ps.cso", true, false, shapePipeline) ||
                 !createPipeline("effects_bloom.ps.cso", false, false, bloomFilterPipeline) ||
                 !createPipeline("effects_texture.ps.cso", true, false, texturePipeline) ||
-                !createPipeline("effects_composite.ps.cso", false, true, bloomCompositePipeline))
+                !createPipeline("effects_composite.ps.cso", false, true, bloomCompositePipeline) ||
+                !createPipeline("effects_composite.ps.cso", true, false, itemCompositePipeline))
                 return false;
 
             D3D12_DESCRIPTOR_HEAP_DESC srvDesc{};
@@ -216,7 +262,7 @@ namespace IVUI::DX12
             srvDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
             D3D12_DESCRIPTOR_HEAP_DESC rtvDesc{};
             rtvDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-            rtvDesc.NumDescriptors = 2;
+            rtvDesc.NumDescriptors = 3;
             if (FAILED(createInfo.device->CreateDescriptorHeap(&srvDesc, IID_PPV_ARGS(&srvHeap))) ||
                 FAILED(createInfo.device->CreateDescriptorHeap(&rtvDesc, IID_PPV_ARGS(&rtvHeap))))
             {
@@ -259,7 +305,7 @@ namespace IVUI::DX12
                     &heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
                     nullptr, IID_PPV_ARGS(&output)));
             };
-            if (!createTexture(D3D12_RESOURCE_FLAG_NONE, source) ||
+            if (!createTexture(D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, source) ||
                 !createTexture(D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, ping) ||
                 !createTexture(D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, pong))
             {
@@ -291,6 +337,9 @@ namespace IVUI::DX12
             const UINT rtvStride = createInfo.device->GetDescriptorHandleIncrementSize(
                 D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
             D3D12_CPU_DESCRIPTOR_HANDLE rtvCpu = rtvHeap->GetCPUDescriptorHandleForHeapStart();
+            createInfo.device->CreateRenderTargetView(source.Get(), nullptr, rtvCpu);
+            sourceRtv = rtvCpu;
+            rtvCpu.ptr += rtvStride;
             ID3D12Resource* renderTargets[] = {ping.Get(), pong.Get()};
             for (std::size_t i = 0; i < std::size(renderTargets); ++i)
             {
@@ -299,6 +348,88 @@ namespace IVUI::DX12
                 rtvCpu.ptr += rtvStride;
             }
             resourceExtent = frame.extent;
+            return true;
+        }
+
+        bool EnsureUploadResource(ComPtr<ID3D12Resource>& resource,
+                                  std::size_t& capacity, std::size_t required)
+        {
+            if (resource && capacity >= required)
+                return true;
+            resource.Reset();
+            capacity = 0;
+
+            D3D12_HEAP_PROPERTIES heap{};
+            heap.Type = D3D12_HEAP_TYPE_UPLOAD;
+            D3D12_RESOURCE_DESC desc{};
+            desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            desc.Width = (std::max)(required, static_cast<std::size_t>(64 * 1024));
+            desc.Height = 1;
+            desc.DepthOrArraySize = 1;
+            desc.MipLevels = 1;
+            desc.SampleDesc.Count = 1;
+            desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            if (FAILED(createInfo.device->CreateCommittedResource(
+                    &heap, D3D12_HEAP_FLAG_NONE, &desc,
+                    D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                    IID_PPV_ARGS(&resource))))
+            {
+                error = "Creating a DX12 item-effect upload buffer failed.";
+                return false;
+            }
+            capacity = static_cast<std::size_t>(desc.Width);
+            return true;
+        }
+
+        bool UploadItem(const ItemEffectDrawData& drawData,
+                        D3D12_VERTEX_BUFFER_VIEW& vertexView,
+                        D3D12_INDEX_BUFFER_VIEW& indexView)
+        {
+            const std::size_t vertexBytes = drawData.vertices.size() * sizeof(ImDrawVert);
+            const std::size_t indexBytes = drawData.indices.size() * sizeof(std::uint32_t);
+            if (vertexBytes > (std::numeric_limits<UINT>::max)() ||
+                indexBytes > (std::numeric_limits<UINT>::max)())
+            {
+                error = "DX12 item-effect geometry exceeds buffer-view limits.";
+                return false;
+            }
+
+            FrameUploads& frameUploads = uploadFrames[frame.frameIndex % uploadFrames.size()];
+            const std::size_t itemIndex = frameUploads.nextItem++;
+            if (itemIndex == frameUploads.items.size())
+                frameUploads.items.emplace_back();
+            ItemUpload& upload = frameUploads.items[itemIndex];
+            if (!EnsureUploadResource(upload.vertices, upload.vertexCapacity, vertexBytes) ||
+                !EnsureUploadResource(upload.indices, upload.indexCapacity, indexBytes))
+                return false;
+
+            D3D12_RANGE readRange{0, 0};
+            void* mappedVertices = nullptr;
+            if (FAILED(upload.vertices->Map(0, &readRange, &mappedVertices)))
+            {
+                error = "Mapping the DX12 item-effect vertex buffer failed.";
+                return false;
+            }
+            std::memcpy(mappedVertices, drawData.vertices.data(), vertexBytes);
+            D3D12_RANGE writtenRange{0, vertexBytes};
+            upload.vertices->Unmap(0, &writtenRange);
+
+            void* mappedIndices = nullptr;
+            if (FAILED(upload.indices->Map(0, &readRange, &mappedIndices)))
+            {
+                error = "Mapping the DX12 item-effect index buffer failed.";
+                return false;
+            }
+            std::memcpy(mappedIndices, drawData.indices.data(), indexBytes);
+            writtenRange.End = indexBytes;
+            upload.indices->Unmap(0, &writtenRange);
+
+            vertexView.BufferLocation = upload.vertices->GetGPUVirtualAddress();
+            vertexView.SizeInBytes = static_cast<UINT>(vertexBytes);
+            vertexView.StrideInBytes = sizeof(ImDrawVert);
+            indexView.BufferLocation = upload.indices->GetGPUVirtualAddress();
+            indexView.SizeInBytes = static_cast<UINT>(indexBytes);
+            indexView.Format = DXGI_FORMAT_R32_UINT;
             return true;
         }
 
@@ -392,31 +523,39 @@ namespace IVUI::DX12
                            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
                 Transition(frame.commandList, capture, D3D12_RESOURCE_STATE_COPY_SOURCE, captureState);
                 captured = true;
-                cachedBlurSigma = -1.0f;
+                cachedBlurSigmaX = -1.0f;
+                cachedBlurSigmaY = -1.0f;
                 cachedBlur = {};
             }
             BindCommon();
             return true;
         }
 
-        D3D12_GPU_DESCRIPTOR_HANDLE Blur(float sigma, D3D12_GPU_DESCRIPTOR_HANDLE input,
-                                        std::size_t inputIndex)
+        D3D12_GPU_DESCRIPTOR_HANDLE Blur(float sigmaX, float sigmaY,
+                                         D3D12_GPU_DESCRIPTOR_HANDLE input,
+                                         std::size_t inputIndex)
         {
-            if (sigma <= 0.01f)
+            if (sigmaX <= 0.01f && sigmaY <= 0.01f)
                 return input;
-            if (inputIndex == 0 && cachedBlur.ptr != 0 && std::fabs(cachedBlurSigma - sigma) < 0.001f)
+            sigmaX = (std::max)(sigmaX, 0.01f);
+            sigmaY = (std::max)(sigmaY, 0.01f);
+            if (inputIndex == 0 && cachedBlur.ptr != 0 &&
+                std::fabs(cachedBlurSigmaX - sigmaX) < 0.001f &&
+                std::fabs(cachedBlurSigmaY - sigmaY) < 0.001f)
                 return cachedBlur;
             const std::size_t firstTarget = inputIndex == 1 ? 1 : 0;
             const std::size_t secondTarget = firstTarget == 0 ? 1 : 0;
             ID3D12Resource* targets[] = {ping.Get(), pong.Get()};
-            const EffectConstants horizontal = MakeBlurEffectConstants(frame.extent, {1.0f, 0.0f}, sigma);
+            const EffectConstants horizontal = MakeBlurEffectConstants(
+                frame.extent, {1.0f, 0.0f}, sigmaX);
             Transition(frame.commandList, targets[firstTarget], D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
                        D3D12_RESOURCE_STATE_RENDER_TARGET);
             Draw(blurPipeline.Get(), input, horizontal, rtv[firstTarget]);
             Transition(frame.commandList, targets[firstTarget], D3D12_RESOURCE_STATE_RENDER_TARGET,
                        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 
-            const EffectConstants vertical = MakeBlurEffectConstants(frame.extent, {0.0f, 1.0f}, sigma);
+            const EffectConstants vertical = MakeBlurEffectConstants(
+                frame.extent, {0.0f, 1.0f}, sigmaY);
             Transition(frame.commandList, targets[secondTarget], D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
                        D3D12_RESOURCE_STATE_RENDER_TARGET);
             Draw(blurPipeline.Get(), srv[firstTarget + 1], vertical, rtv[secondTarget]);
@@ -425,7 +564,8 @@ namespace IVUI::DX12
             const D3D12_GPU_DESCRIPTOR_HANDLE result = srv[secondTarget + 1];
             if (inputIndex == 0)
             {
-                cachedBlurSigma = sigma;
+                cachedBlurSigmaX = sigmaX;
+                cachedBlurSigmaY = sigmaY;
                 cachedBlur = result;
             }
             return result;
@@ -443,7 +583,7 @@ namespace IVUI::DX12
                 // already rendered beneath it instead of the frame-start backdrop.
                 if (Capture(true))
                 {
-                    const auto blurred = Blur(request.blur.sigma, srv[0], 0);
+                    const auto blurred = Blur(request.blur.sigma, request.blur.sigma, srv[0], 0);
                     EffectConstants constants{};
                     constants.values[0] = request.blur.bounds.min.x;
                     constants.values[1] = request.blur.bounds.min.y;
@@ -457,14 +597,16 @@ namespace IVUI::DX12
             case EffectId::Glass:
                 if (Capture())
                 {
-                    const auto blurred = Blur(request.glass.blurSigma, srv[0], 0);
+                    const auto blurred = Blur(
+                        request.glass.blurSigma, request.glass.blurSigma, srv[0], 0);
                     Draw(glassPipeline.Get(), blurred,
                           MakeGlassEffectConstants(request.glass, frame.extent, frame.timeSeconds),
                           frame.targetRtv);
                     // A following panel needs a fresh Z-aware capture. The paired
                     // BackdropBlur -> Glass commands still share this panel's blur.
                     captured = false;
-                    cachedBlurSigma = -1.0f;
+                    cachedBlurSigmaX = -1.0f;
+                    cachedBlurSigmaY = -1.0f;
                     cachedBlur = {};
                 }
                 break;
@@ -499,16 +641,136 @@ namespace IVUI::DX12
                     Draw(bloomFilterPipeline.Get(), srv[0], bloom, rtv[0]);
                     Transition(frame.commandList, ping.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
                                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-                    const auto blurred = Blur(request.bloom.sigma, srv[1], 1);
+                    const auto blurred = Blur(
+                        request.bloom.sigma, request.bloom.sigma, srv[1], 1);
                     Draw(bloomCompositePipeline.Get(), blurred, bloom, frame.targetRtv);
                     captured = false;
-                    cachedBlurSigma = -1.0f;
+                    cachedBlurSigmaX = -1.0f;
+                    cachedBlurSigmaY = -1.0f;
                     cachedBlur = {};
                 }
                 break;
             default:
                 break;
             }
+        }
+
+        void RenderItem(const ItemEffectRequest& request,
+                        const ItemEffectDrawData& drawData)
+        {
+            if (!frameActive || frame.commandList == nullptr || frame.drawData == nullptr ||
+                drawData.Empty() ||
+                request.layerCount == 0 || !EnsureResources())
+                return;
+
+            captured = false;
+            cachedBlurSigmaX = -1.0f;
+            cachedBlurSigmaY = -1.0f;
+            cachedBlur = {};
+
+            D3D12_VERTEX_BUFFER_VIEW vertexView{};
+            D3D12_INDEX_BUFFER_VIEW indexView{};
+            if (!UploadItem(drawData, vertexView, indexView))
+                return;
+
+            Transition(frame.commandList, source.Get(),
+                       D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+                       D3D12_RESOURCE_STATE_RENDER_TARGET);
+            frame.commandList->OMSetRenderTargets(1, &sourceRtv, FALSE, nullptr);
+            constexpr float clearColor[4] = {};
+            frame.commandList->ClearRenderTargetView(sourceRtv, clearColor, 0, nullptr);
+            SetFullscreenState(frame.commandList);
+            frame.commandList->IASetVertexBuffers(0, 1, &vertexView);
+            frame.commandList->IASetIndexBuffer(&indexView);
+            if (frame.restoreSrvDescriptorHeap)
+            {
+                ID3D12DescriptorHeap* heaps[] = {frame.restoreSrvDescriptorHeap};
+                frame.commandList->SetDescriptorHeaps(1, heaps);
+            }
+
+            const ImVec2 displayPos = frame.drawData->DisplayPos;
+            const ImVec2 displaySize = frame.drawData->DisplaySize;
+            const ImVec2 framebufferScale = frame.drawData->FramebufferScale;
+            if (displaySize.x <= 0.0f || displaySize.y <= 0.0f)
+            {
+                Transition(frame.commandList, source.Get(),
+                           D3D12_RESOURCE_STATE_RENDER_TARGET,
+                           D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                frame.commandList->OMSetRenderTargets(1, &frame.targetRtv, FALSE, nullptr);
+                return;
+            }
+            const float left = displayPos.x;
+            const float right = displayPos.x + displaySize.x;
+            const float top = displayPos.y;
+            const float bottom = displayPos.y + displaySize.y;
+            const std::array<float, 16> projection = {
+                2.0f / (right - left), 0.0f, 0.0f, 0.0f,
+                0.0f, 2.0f / (top - bottom), 0.0f, 0.0f,
+                0.0f, 0.0f, 0.5f, 0.0f,
+                (right + left) / (left - right),
+                (top + bottom) / (bottom - top), 0.5f, 1.0f};
+            frame.commandList->SetGraphicsRoot32BitConstants(
+                0, static_cast<UINT>(projection.size()), projection.data(), 0);
+            for (const ItemEffectDrawCommand& command : drawData.commands)
+            {
+                if (command.indexCount == 0 || command.textureId == ImTextureID_Invalid ||
+                    command.firstIndex > drawData.indices.size() ||
+                    command.indexCount > drawData.indices.size() - command.firstIndex)
+                    continue;
+                const float minX = std::clamp(
+                    (command.clipRect.x - displayPos.x) * framebufferScale.x,
+                    0.0f, static_cast<float>(frame.extent.width));
+                const float minY = std::clamp(
+                    (command.clipRect.y - displayPos.y) * framebufferScale.y,
+                    0.0f, static_cast<float>(frame.extent.height));
+                const float maxX = std::clamp(
+                    (command.clipRect.z - displayPos.x) * framebufferScale.x,
+                    0.0f, static_cast<float>(frame.extent.width));
+                const float maxY = std::clamp(
+                    (command.clipRect.w - displayPos.y) * framebufferScale.y,
+                    0.0f, static_cast<float>(frame.extent.height));
+                if (maxX <= minX || maxY <= minY)
+                    continue;
+
+                const D3D12_RECT scissor{
+                    static_cast<LONG>(minX), static_cast<LONG>(minY),
+                    static_cast<LONG>(maxX), static_cast<LONG>(maxY)};
+                frame.commandList->RSSetScissorRects(1, &scissor);
+                D3D12_GPU_DESCRIPTOR_HANDLE texture{};
+                texture.ptr = static_cast<UINT64>(command.textureId);
+                frame.commandList->SetGraphicsRootDescriptorTable(1, texture);
+                frame.commandList->DrawIndexedInstanced(
+                    command.indexCount, 1, command.firstIndex, 0, 0);
+            }
+            Transition(frame.commandList, source.Get(),
+                       D3D12_RESOURCE_STATE_RENDER_TARGET,
+                       D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            frame.commandList->OMSetRenderTargets(1, &frame.targetRtv, FALSE, nullptr);
+
+            BindCommon();
+            const float sigmaScaleX = std::fabs(framebufferScale.x);
+            const float sigmaScaleY = std::fabs(framebufferScale.y);
+            const std::uint32_t layerCount = std::min<std::uint32_t>(
+                request.layerCount, static_cast<std::uint32_t>(request.layers.size()));
+            for (std::uint32_t index = 0; index < layerCount; ++index)
+            {
+                const ItemEffectLayer& layer = request.layers[index];
+                if (layer.type != ItemEffectType::Shadow &&
+                    layer.type != ItemEffectType::Glow &&
+                    layer.type != ItemEffectType::Blur)
+                    continue;
+                const D3D12_GPU_DESCRIPTOR_HANDLE blurred = Blur(
+                    layer.sigma * sigmaScaleX, layer.sigma * sigmaScaleY, srv[0], 0);
+                Draw(itemCompositePipeline.Get(), blurred,
+                     MakeItemCompositeConstants(
+                         layer, frame.extent, framebufferScale),
+                     frame.targetRtv);
+            }
+
+            captured = false;
+            cachedBlurSigmaX = -1.0f;
+            cachedBlurSigmaY = -1.0f;
+            cachedBlur = {};
         }
     };
 
@@ -546,22 +808,27 @@ namespace IVUI::DX12
     bool EffectRenderer::BeginFrame(const EffectRendererFrameInfo& frameInfo) noexcept
     {
         if (!impl_ || frameInfo.commandList == nullptr || frameInfo.target == nullptr ||
-            frameInfo.targetRtv.ptr == 0 || frameInfo.extent.width == 0 || frameInfo.extent.height == 0)
+            frameInfo.targetRtv.ptr == 0 || frameInfo.extent.width == 0 ||
+            frameInfo.extent.height == 0 ||
+            frameInfo.frameIndex >= impl_->uploadFrames.size())
             return false;
         impl_->frame = frameInfo;
+        impl_->uploadFrames[frameInfo.frameIndex % impl_->uploadFrames.size()].nextItem = 0;
         impl_->captured = false;
         impl_->immutableBackdrop = frameInfo.renderBackground || frameInfo.backdrop != nullptr;
-        impl_->cachedBlurSigma = -1.0f;
+        impl_->cachedBlurSigmaX = -1.0f;
+        impl_->cachedBlurSigmaY = -1.0f;
         impl_->cachedBlur = {};
         impl_->frameActive = true;
         if (frameInfo.renderBackground)
         {
-            if (!impl_->RenderBackground() || !impl_->Capture())
+            const bool rendered = impl_->RenderBackground() && impl_->Capture();
+            impl_->RestoreHostDescriptorHeap();
+            if (!rendered)
             {
                 impl_->frameActive = false;
                 return false;
             }
-            impl_->RestoreHostDescriptorHeap();
         }
         return true;
     }
@@ -600,6 +867,23 @@ namespace IVUI::DX12
         catch (...)
         {
             impl_->error = "Unexpected DX12 effect rendering failure.";
+            impl_->RestoreHostDescriptorHeap();
+        }
+    }
+
+    void EffectRenderer::RenderItemEffects(const ItemEffectRequest& request,
+                                           const ItemEffectDrawData& drawData) noexcept
+    {
+        if (!impl_)
+            return;
+        try
+        {
+            impl_->RenderItem(request, drawData);
+            impl_->RestoreHostDescriptorHeap();
+        }
+        catch (...)
+        {
+            impl_->error = "Unexpected DX12 item-effect rendering failure.";
             impl_->RestoreHostDescriptorHeap();
         }
     }

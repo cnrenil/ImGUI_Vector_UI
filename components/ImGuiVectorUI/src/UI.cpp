@@ -18,6 +18,7 @@
 #include "ImGuiVectorUI/Widgets/Toggle.h"
 
 #include <algorithm>
+#include <cmath>
 #include <thread>
 #include <unordered_map>
 #include <utility>
@@ -32,7 +33,7 @@ namespace IVUI
         Context* context = nullptr;
         Context* previousFrameLibraryContext = nullptr;
         std::unique_ptr<EffectRegistry> effectRegistry;
-        std::unordered_map<std::string, std::unique_ptr<ILayout>> customLayouts;
+        std::unordered_map<std::string, std::shared_ptr<ILayout>> customLayouts;
         ImFont* regularFont = nullptr;
         ImFont* titleFont = nullptr;
         std::thread::id ownerThread = std::this_thread::get_id();
@@ -56,6 +57,11 @@ namespace IVUI
                 SetCurrentContext(previousLibrary_);
                 ImGui::SetCurrentContext(previous_);
             }
+            void Forget(ImGuiContext* imgui, Context* library) noexcept
+            {
+                if (previous_ == imgui) previous_ = nullptr;
+                if (previousLibrary_ == library) previousLibrary_ = nullptr;
+            }
         private:
             ImGuiContext* previous_ = nullptr;
             Context* previousLibrary_ = nullptr;
@@ -76,6 +82,8 @@ namespace IVUI
             return nullptr;
         }
 
+        // Capture the caller before CreateContext selects a new current context.
+        const ContextScope scope(ImGui::GetCurrentContext(), GetContext());
         auto impl = std::make_unique<Impl>();
         impl->config = std::move(config);
         impl->imgui = ImGui::CreateContext();
@@ -85,7 +93,8 @@ namespace IVUI
             return nullptr;
         }
 
-        const ContextScope scope(impl->imgui);
+        ImGui::SetCurrentContext(impl->imgui);
+        SetCurrentContext(nullptr);
         ImGuiIO& io = ImGui::GetIO();
         io.ConfigFlags |= impl->config.configFlags;
         ImGui::StyleColorsDark();
@@ -112,11 +121,13 @@ namespace IVUI
 
         impl->context = CreateContext();
         Theme initial = impl->config.initialTheme;
-        if (initial.Scale <= 0.0f)
-            initial = ThemeInjectionPeach();
+        if (!std::isfinite(initial.Scale) || initial.Scale <= 0.0f)
+            initial = MakeTheme();
+        impl->context->themeLive = initial;
         SetTargetTheme(initial);
         GetMutableTheme() = initial;
         SetContentScale(std::max(impl->config.contentScale, 0.01f));
+        SetMotionSettings(impl->config.motion);
         if (impl->config.configureFonts)
             impl->config.configureFonts(io, impl->regularFont, impl->titleFont);
         SetFonts(impl->regularFont, impl->titleFont);
@@ -135,16 +146,18 @@ namespace IVUI
         effects_.reset(new Effects(*this));
         themes_.reset(new Themes(*this));
         motion_.reset(new Motion(*this));
+        elements_.reset(new Elements(*this));
     }
 
     UI::~UI()
     {
         if (!impl_ || !impl_->imgui)
             return;
-        ContextScope scope(impl_->imgui, impl_->context);
         if (impl_->frameActive)
-            ImGui::EndFrame();
-        ClearToasts();
+            EndFrameWithoutRender();
+        ContextScope scope(impl_->imgui, impl_->context);
+        scope.Forget(impl_->imgui, impl_->context);
+        ClearNotifications();
         DestroyContext(impl_->context);
         impl_->context = nullptr;
         if (impl_->config.renderer)
@@ -186,11 +199,14 @@ namespace IVUI
         SetCurrentContext(impl_->context);
         impl_->config.renderer->NewFrame();
         impl_->config.platform->NewFrame();
-        ImGui::NewFrame();
-        IVUI::NewFrame();
         if (info.contentScale > 0.0f)
             IVUI::SetContentScale(info.contentScale);
+        IVUI::NewFrame();
+        if (impl_->config.syncImGuiStyle)
+            ApplyImGuiTheme(GetTheme(), ImGui::GetStyle());
+        ImGui::NewFrame();
         impl_->frameActive = true;
+        impl_->context->frameActive = true;
         AssignError(error, {});
         return true;
     }
@@ -203,7 +219,8 @@ namespace IVUI
             return false;
         }
         Activate();
-        RenderToasts();
+        RenderNotifications();
+        impl_->context->frameActive = false;
         ImGui::Render();
         std::string renderError;
         const bool rendered = impl_->config.renderer->RenderDrawData(
@@ -219,9 +236,10 @@ namespace IVUI
 
     void UI::EndFrameWithoutRender() noexcept
     {
-        if (!impl_ || !impl_->frameActive)
+        if (!impl_ || !impl_->frameActive || std::this_thread::get_id() != impl_->ownerThread)
             return;
         Activate();
+        impl_->context->frameActive = false;
         ImGui::EndFrame();
         impl_->frameActive = false;
         ImGui::SetCurrentContext(impl_->previousFrameContext);
@@ -249,9 +267,21 @@ namespace IVUI
     UI::Effects& UI::effects() noexcept { return *effects_; }
     UI::Themes& UI::theme() noexcept { return *themes_; }
     UI::Motion& UI::motion() noexcept { return *motion_; }
+    UI::Elements& UI::elements() noexcept { return *elements_; }
+
+    void UI::Motion::Configure(const MotionSettings& settings)
+    {
+        owner_.Activate();
+        SetMotionSettings(settings);
+    }
+    MotionSettings UI::Motion::Settings() const
+    {
+        owner_.Activate();
+        return GetMotionSettings();
+    }
 
 #define IVUI_WIDGET_CALL(expression) owner_.Activate(); return (expression)
-    bool UI::Widgets::Button(const char* l, ImVec2 s, bool p) { IVUI_WIDGET_CALL(IVUI::Button(l, s, p)); }
+    bool UI::Widgets::Button(const char* l, const ButtonOptions& o) { IVUI_WIDGET_CALL(IVUI::Button(l, o)); }
     bool UI::Widgets::Toggle(const char* l, bool* v) { IVUI_WIDGET_CALL(IVUI::Toggle(l, v)); }
     bool UI::Widgets::Checkbox(const char* l, bool* v) { IVUI_WIDGET_CALL(IVUI::Checkbox(l, v)); }
     bool UI::Widgets::RadioButton(const char* l, bool a) { IVUI_WIDGET_CALL(IVUI::RadioButton(l, a)); }
@@ -262,6 +292,12 @@ namespace IVUI
     bool UI::Widgets::Combo(const char* l, int* v, std::initializer_list<const char*> i) { IVUI_WIDGET_CALL(IVUI::Combo(l, v, i)); }
     bool UI::Widgets::ComboMulti(const char* l, std::initializer_list<ComboItem> i) { IVUI_WIDGET_CALL(IVUI::ComboMulti(l, i)); }
     bool UI::Widgets::ColorPicker(const char* l, ImVec4* c) { IVUI_WIDGET_CALL(IVUI::ColorPicker(l, c)); }
+    bool UI::Widgets::ColorPicker(const char* l, ImVec4* c, const ColorPickerOptions& o) { IVUI_WIDGET_CALL(IVUI::ColorPicker(l, c, o)); }
+    void UI::Widgets::SetColorPickerEyedropper(ColorPickerEyedropperCallback callback, void* userData) noexcept
+    {
+        owner_.Activate();
+        IVUI::SetColorPickerEyedropper(callback, userData);
+    }
     bool UI::Widgets::TextInput(const char* l, char* b, std::size_t n, const char* h) { IVUI_WIDGET_CALL(IVUI::TextInput(l, b, n, h)); }
     bool UI::Widgets::InputTextMultiline(const char* l, char* b, std::size_t n, ImVec2 s, ImGuiInputTextFlags f) { IVUI_WIDGET_CALL(IVUI::InputTextMultiline(l, b, n, s, f)); }
     bool UI::Widgets::SearchInput(const char* l, char* b, std::size_t n, const char* h, float w) { IVUI_WIDGET_CALL(IVUI::SearchInput(l, b, n, h, w)); }
@@ -273,12 +309,30 @@ namespace IVUI
     bool UI::Widgets::Selectable(const char* l, bool* s, ImGuiSelectableFlags f, ImVec2 z) { IVUI_WIDGET_CALL(IVUI::Selectable(l, s, f, z)); }
     void UI::Widgets::ProgressBar(const char* l, float v, ImVec2 s, const char* o) { owner_.Activate(); IVUI::ProgressBar(l, v, s, o); }
     void UI::Widgets::Spinner(const char* l, float r, float t) { owner_.Activate(); IVUI::Spinner(l, r, t); }
+    void UI::Widgets::AnimatedText(const char* l, const AnimatedTextOptions& o) { owner_.Activate(); IVUI::AnimatedText(l, o); }
     void UI::Widgets::OpenConfirm(const char* id) { owner_.Activate(); IVUI::OpenConfirm(id); }
     bool UI::Widgets::ConfirmPopup(const char* id, const char* m, const char* y, const char* n) { IVUI_WIDGET_CALL(IVUI::ConfirmPopup(id, m, y, n)); }
-    void UI::Widgets::Toast(ToastType t, const char* title, const char* body, float seconds) { owner_.Activate(); IVUI::Toast(t, title, body, seconds); }
-    void UI::Widgets::ClearToasts() { owner_.Activate(); IVUI::ClearToasts(); }
+    NotificationHandle UI::Widgets::Notify(const char* title, const char* body, const NotificationOptions& o) { owner_.Activate(); return IVUI::Notify(title, body, o); }
+    bool UI::Widgets::UpdateNotification(NotificationHandle h, const NotificationUpdate& u) { owner_.Activate(); return IVUI::UpdateNotification(h, u); }
+    bool UI::Widgets::CloseNotification(NotificationHandle h) { owner_.Activate(); return IVUI::CloseNotification(h); }
+    bool UI::Widgets::SetNotificationProgress(NotificationHandle h, float p) { owner_.Activate(); return IVUI::SetNotificationProgress(h, p); }
+    void UI::Widgets::ClearNotifications() { owner_.Activate(); IVUI::ClearNotifications(); }
 #undef IVUI_WIDGET_CALL
 
+    bool UI::Layouts::Content(const char* id, std::span<const ContentBlock> blocks,
+                             const ContentLayoutOptions& options)
+    {
+        owner_.Activate();
+        return RenderContentLayout(owner_, id, blocks, options);
+    }
+
+    void UI::Layouts::Workbench(const char* id, const WorkbenchOptions& options,
+                               const std::function<void(bool)>& navigation,
+                               const std::function<void()>& body)
+    {
+        owner_.Activate();
+        IVUI::Workbench(id, options, navigation, body);
+    }
     void UI::Layouts::Panel(const char* l, ImVec2 p, ImVec2 s, const std::function<void()>& b, ImGuiWindowFlags f) { owner_.Activate(); IVUI::Panel(l, p, s, b, f); }
     void UI::Layouts::Panel(const char* l, ImVec2 p, ImVec2 s, const std::function<void()>& b, PanelHeader* h, ImGuiWindowFlags f) { owner_.Activate(); IVUI::Panel(l, p, s, b, h, f); }
     bool UI::Layouts::Section(const char* l, bool* o, const std::function<void()>& b) { owner_.Activate(); return IVUI::Section(l, o, b); }
@@ -311,7 +365,9 @@ namespace IVUI
         owner_.Activate();
         const auto found = owner_.impl_->customLayouts.find(id);
         if (found == owner_.impl_->customLayouts.end()) return false;
-        found->second->Render(owner_, body);
+        // Keep self-unregistering/replacing layouts alive until Render returns.
+        const auto layout = found->second;
+        layout->Render(owner_, body);
         return true;
     }
 
@@ -330,6 +386,15 @@ namespace IVUI
         return true;
     }
     bool UI::Effects::Glass(const GlassEffectParams& params) { return Submit(EffectRequest::Glass(params)); }
+    ItemEffectScope UI::Effects::BeginItem(const ItemEffectRequest& request)
+    {
+        owner_.Activate();
+        IEffectRenderer* renderer = Renderer();
+        if (!renderer || !HasEffectCapabilities(renderer->GetCapabilities(),
+                                                EffectCapabilities::ItemEffects))
+            return {};
+        return BeginItemEffect(*renderer, request);
+    }
     bool UI::Effects::Register(EffectId id, CustomEffectCallback callback, void* userData)
     {
         return owner_.impl_->effectRegistry->Register(id, callback, userData);
@@ -351,4 +416,30 @@ namespace IVUI
     float UI::Motion::Approach(ImGuiID id, float target, float speed) { owner_.Activate(); return IVUI::Approach(id, target, speed); }
     float UI::Motion::Toggle(ImGuiID id, bool on, float speed, EasingType e) { owner_.Activate(); return IVUI::Toggle01(id, on, speed, e); }
     float UI::Motion::Transition(ImGuiID id, int key, float speed, EasingType e) { owner_.Activate(); return IVUI::Transition(id, key, speed, e); }
+    ItemMotionScope UI::Motion::BeginItem(ImGuiID id, bool visible, const ItemMotionStyle& style)
+    {
+        owner_.Activate();
+        return BeginItemMotion(id, visible, style);
+    }
+    ItemMotionScope UI::Motion::BeginItem(const char* label, bool visible, const ItemMotionStyle& style)
+    {
+        owner_.Activate();
+        return BeginItemMotion(label, visible, style);
+    }
+
+    ElementScope UI::Elements::Begin(ImDrawList* draw, ImGuiID id, bool visible, const ElementOptions& options)
+    {
+        owner_.Activate();
+        return BeginElement(draw, id, visible, options);
+    }
+    ElementScope UI::Elements::Begin(ImGuiID id, bool visible, const ElementOptions& options)
+    {
+        owner_.Activate();
+        return BeginElement(id, visible, options);
+    }
+    ElementScope UI::Elements::Begin(const char* label, bool visible, const ElementOptions& options)
+    {
+        owner_.Activate();
+        return BeginElement(label, visible, options);
+    }
 }

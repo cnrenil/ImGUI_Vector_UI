@@ -27,7 +27,13 @@ add_custom_command(TARGET ImGuiVectorUIDemo POST_BUILD
         $<TARGET_FILE_DIR:ImGuiVectorUIDemo>/unifont.otf
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         ${CMAKE_CURRENT_SOURCE_DIR}/../DemoMenu/assets/UNIFONT-LICENSE.txt
-        $<TARGET_FILE_DIR:ImGuiVectorUIDemo>/UNIFONT-LICENSE.txt)
+        $<TARGET_FILE_DIR:ImGuiVectorUIDemo>/UNIFONT-LICENSE.txt
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_CURRENT_SOURCE_DIR}/../DemoMenu/assets/CesiumMilkTruck.glb
+        $<TARGET_FILE_DIR:ImGuiVectorUIDemo>/CesiumMilkTruck.glb
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_CURRENT_SOURCE_DIR}/../DemoMenu/assets/CESIUM-MILK-TRUCK-LICENSE.txt
+        $<TARGET_FILE_DIR:ImGuiVectorUIDemo>/CESIUM-MILK-TRUCK-LICENSE.txt)
 
 if(IVUI_BUILD_TESTS)
     add_executable(ImGuiVectorUIFontAssetTests FontAssetTests.cpp)

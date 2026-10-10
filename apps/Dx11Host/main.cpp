@@ -172,6 +172,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
         ::UnregisterClassW(windowClass.lpszClassName, windowClass.hInstance);
         return 1;
     }
+    Demo::SetAssetDirectory(executableDirectory.c_str());
 
     bool showMenu = true;
     bool done = false;
@@ -240,10 +241,15 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
         const IVUI::Theme& theme = g_ui->theme().Current();
         const ImVec4 accent = ImGui::ColorConvertU32ToFloat4(theme.Accent);
         frame.effects.renderBackground = true;
+        frame.effects.background.topColor = {0.018f, 0.035f, 0.085f, 1.0f};
+        frame.effects.background.bottomColor = {0.004f, 0.008f, 0.020f, 1.0f};
         frame.effects.background.accent = {accent.x, accent.y, accent.z, accent.w};
-        frame.effects.background.gridSize = 48.0f * theme.Scale;
-        frame.effects.background.animationSpeed = 1.15f;
-        frame.effects.background.intensity = 1.3f;
+        frame.effects.background.secondary = {0.95f, 0.18f, 0.48f, 1.0f};
+        frame.effects.background.gridSize = 72.0f;
+        frame.effects.background.gridStrength = 0.34f;
+        frame.effects.background.vignette = 0.38f;
+        frame.effects.background.animationSpeed = 0.42f;
+        frame.effects.background.intensity = 1.15f;
         if (!g_ui->Render(frame, &uiError))
         {
             ::MessageBoxA(hwnd, uiError.c_str(), "ImGuiVectorUI DX11 render error",

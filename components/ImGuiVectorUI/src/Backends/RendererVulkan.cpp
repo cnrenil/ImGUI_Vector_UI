@@ -59,14 +59,16 @@ namespace IVUI::Vulkan
             return false;
         }
         auto* effectRenderer = dynamic_cast<EffectRenderer*>(effects ? effects->GetBackendRenderer() : nullptr);
-        if (effectRenderer && !effectRenderer->PrepareFrame(frame->effects))
+        EffectRendererFrameInfo effectFrame = frame->effects;
+        effectFrame.drawData = &drawData;
+        if (effectRenderer && !effectRenderer->PrepareFrame(effectFrame))
         {
             error = effectRenderer->GetLastError();
             return false;
         }
         if (frame->beginRenderPass)
             frame->beginRenderPass(frame->userData, frame->effects.commandBuffer);
-        if (effectRenderer && !effectRenderer->BeginFrame(frame->effects))
+        if (effectRenderer && !effectRenderer->BeginFrame(effectFrame))
         {
             error = effectRenderer->GetLastError();
             if (frame->endRenderPass)
